@@ -201,7 +201,7 @@ function AddDeviceModal({
         >
           <textarea
             rows={5}
-            class="field-input break-all font-mono text-[12.5px] leading-relaxed"
+            class="field-input no-scrollbar break-all font-mono text-[12.5px] leading-relaxed"
             placeholder="Paste the linking code from the new device"
             value={pasted}
             onInput={(e) => setPasted((e.target as HTMLTextAreaElement).value)}

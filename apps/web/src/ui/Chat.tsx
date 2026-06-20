@@ -270,7 +270,7 @@ function Composer(): JSX.Element {
         </button>
         <textarea
           ref={taRef}
-          class="max-h-[160px] flex-1 resize-none self-center border-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[1.45] text-ink outline-none placeholder:text-muted focus:!shadow-none focus-visible:!shadow-none"
+          class="no-scrollbar max-h-[160px] flex-1 self-center border-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[1.45] text-ink outline-none placeholder:text-muted focus:!shadow-none focus-visible:!shadow-none"
           placeholder="Write a message"
           value={text}
           rows={1}

@@ -166,6 +166,10 @@
     color: inherit;
   }
 
+  textarea {
+    resize: none;
+  }
+
   ::selection {
     background: var(--c-accent-soft);
   }
@@ -198,6 +202,14 @@
 @layer components {
   .bg-grad {
     background: var(--bg-grad);
+  }
+
+  /* Hide the scrollbar on editing fields that aren't browsing regions. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 
   .field-input {
