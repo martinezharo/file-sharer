@@ -20,7 +20,7 @@
       "database_name": "file-sharer-db",
       // Replace with the id printed by `wrangler d1 create file-sharer-db`.
       // A placeholder is fine for local dev (`--local`).
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "05e8acfd-585f-491e-a6e2-355cb5b10927",
       "migrations_dir": "migrations"
     }
   ],
