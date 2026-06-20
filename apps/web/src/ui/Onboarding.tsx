@@ -4,14 +4,19 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { cancelLinking, createSpace, linking, startLinking } from "../actions";
 import { renderQrToCanvas } from "../qr/generate";
 import { showToast } from "../state/ui";
-import { Button, Logo, Spinner } from "./components";
+import { Button, Spinner } from "./components";
 
 type Mode = "choose" | "create" | "link";
 
-export function Onboarding(): JSX.Element {
+/**
+ * The sign-up / device-linking panel. Used as the primary call-to-action on
+ * the landing page (the create / link buttons stay visible above the fold).
+ */
+export function OnboardingCard(): JSX.Element {
   const [mode, setMode] = useState<Mode>("choose");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const link = linking.value;
 
   async function onCreate(): Promise<void> {
     if (!name.trim()) return;
@@ -38,25 +43,23 @@ export function Onboarding(): JSX.Element {
   }
 
   return (
-    <div class="bg-grad grid min-h-full place-items-center p-6">
-      <div class="w-full max-w-[420px] rounded-xl3 bg-surface p-9 shadow-float max-md:rounded-xl2 max-md:p-[22px]">
-        <div class="mb-7 flex flex-col items-center gap-4 text-center">
-          <Logo size="lg" />
-          <div>
-            <h1 class="text-[28px] tracking-[-0.03em]">
-              file<span class="text-accent">·</span>sharer
-            </h1>
-            <p class="mx-auto mt-2 max-w-[300px] text-[14.5px] leading-relaxed text-muted">
-              End-to-end encrypted text &amp; file sharing across your own devices.
+    <div
+      id="get-started"
+      class="w-full scroll-mt-24 rounded-xl3 bg-surface p-7 shadow-float max-md:rounded-xl2 max-md:p-6"
+    >
+      {mode === "choose" && (
+        <>
+          <header class="mb-6">
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent [&_svg]:size-3.5">
+              <ShieldCheck />
+              Zero-knowledge
+            </span>
+            <h2 class="mt-3.5 text-[22px] tracking-[-0.02em]">Start sharing privately</h2>
+            <p class="mt-1.5 text-sm leading-relaxed text-muted">
+              Create a private space or link this device to one you already have. Free, no account
+              needed.
             </p>
-          </div>
-          <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent [&_svg]:size-3.5">
-            <ShieldCheck />
-            Zero-knowledge encryption
-          </span>
-        </div>
-
-        {mode === "choose" && (
+          </header>
           <div class="flex flex-col gap-2.5">
             <Choice
               icon={<Plus />}
@@ -71,29 +74,45 @@ export function Onboarding(): JSX.Element {
               onClick={() => setMode("link")}
             />
           </div>
-        )}
+        </>
+      )}
 
-        {mode === "create" && (
-          <form
-            class="flex flex-col gap-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void onCreate();
-            }}
-          >
-            <DeviceNameField value={name} onInput={setName} placeholder="e.g. My laptop" />
-            <div class="mt-1 flex flex-col gap-2">
-              <Button variant="primary" type="submit" disabled={busy || !name.trim()}>
-                {busy ? <Spinner /> : "Create space"}
-              </Button>
-              <Button variant="ghost" type="button" onClick={() => setMode("choose")}>
-                Back
-              </Button>
-            </div>
-          </form>
-        )}
+      {mode === "create" && (
+        <form
+          class="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void onCreate();
+          }}
+        >
+          <header class="mb-1">
+            <h2 class="text-[22px] tracking-[-0.02em]">Create a space</h2>
+            <p class="mt-1.5 text-sm leading-relaxed text-muted">
+              Give this device a name to get started.
+            </p>
+          </header>
+          <DeviceNameField value={name} onInput={setName} placeholder="e.g. My laptop" />
+          <div class="mt-1 flex flex-col gap-2">
+            <Button variant="primary" type="submit" disabled={busy || !name.trim()}>
+              {busy ? <Spinner /> : "Create space"}
+            </Button>
+            <Button variant="ghost" type="button" onClick={() => setMode("choose")}>
+              Back
+            </Button>
+          </div>
+        </form>
+      )}
 
-        {mode === "link" && (
+      {mode === "link" && (
+        <>
+          {!link && (
+            <header class="mb-4">
+              <h2 class="text-[22px] tracking-[-0.02em]">Link this device</h2>
+              <p class="mt-1.5 text-sm leading-relaxed text-muted">
+                Name this device, then scan the code from one already in the space.
+              </p>
+            </header>
+          )}
           <LinkFlow
             name={name}
             setName={setName}
@@ -101,8 +120,8 @@ export function Onboarding(): JSX.Element {
             onStart={onStartLink}
             onBack={() => setMode("choose")}
           />
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
@@ -189,9 +208,6 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
         }}
       >
         <DeviceNameField value={name} onInput={setName} placeholder="e.g. My phone" />
-        <p class="text-[13px] leading-relaxed text-muted">
-          You&apos;ll get a code to scan from a device that is already in the space.
-        </p>
         <div class="mt-1 flex flex-col gap-2">
           <Button variant="primary" type="submit" disabled={busy || !name.trim()}>
             {busy ? <Spinner /> : "Generate linking code"}

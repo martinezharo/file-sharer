@@ -7,7 +7,7 @@ import { online, view, type View } from "../state/ui";
 import { Chat } from "./Chat";
 import { Button, cx, IconButton, Logo, Modal, Spinner, Toasts } from "./components";
 import { DeviceManager } from "./DeviceManager";
-import { Onboarding } from "./Onboarding";
+import { Landing } from "./Landing";
 
 const NAV: Array<{ id: View; label: string; icon: typeof MessagesSquare }> = [
   { id: "chat", label: "Messages", icon: MessagesSquare },
@@ -26,12 +26,7 @@ export function App(): JSX.Element {
   }
 
   if (!session.value) {
-    return (
-      <>
-        <Onboarding />
-        <Toasts />
-      </>
-    );
+    return <Landing />;
   }
 
   const current = view.value;
