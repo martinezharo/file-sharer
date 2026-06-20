@@ -12,8 +12,9 @@ import {
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { saveFile, sendFileMessage, sendTextMessage } from "../actions";
+import { api } from "../api/client";
 import { messages } from "../state/messages";
-import { session } from "../state/session";
+import { authHeaders, session } from "../state/session";
 import { syncNow } from "../sync/sync";
 import type { LocalMessage } from "../types";
 import { cx, formatBytes, formatTime, IconButton, Spinner } from "./components";
@@ -51,12 +52,34 @@ function Linkify({ text }: { text: string }): JSX.Element {
 
 export function Chat(): JSX.Element {
   const list = messages.value;
-  const myId = session.value?.deviceId;
+  const currentSession = session.value;
+  const myId = currentSession?.deviceId;
+  const [deviceNames, setDeviceNames] = useState<Map<string, string>>(() => new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [list.length]);
+
+  useEffect(() => {
+    if (!currentSession) return;
+
+    let cancelled = false;
+    api
+      .listDevices(authHeaders())
+      .then((result) => {
+        if (!cancelled) {
+          setDeviceNames(new Map(result.devices.map((device) => [device.id, device.name])));
+        }
+      })
+      .catch(() => {
+        /* Names for newly received messages still come from /messages/pending. */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSession?.groupId, currentSession?.deviceId]);
 
   return (
     <div class="flex min-h-0 flex-1 flex-col">
@@ -64,7 +87,12 @@ export function Chat(): JSX.Element {
         <div class="mx-auto flex w-full max-w-[760px] flex-col gap-[3px]">
           {list.length === 0 && <EmptyState />}
           {list.map((message) => (
-            <MessageBubble key={message.id} message={message} mine={message.senderDeviceId === myId} />
+            <MessageBubble
+              key={message.id}
+              message={message}
+              mine={message.senderDeviceId === myId}
+              deviceName={deviceNames.get(message.senderDeviceId)}
+            />
           ))}
           <div ref={bottomRef} />
         </div>
@@ -89,7 +117,18 @@ function EmptyState(): JSX.Element {
   );
 }
 
-function MessageBubble({ message, mine }: { message: LocalMessage; mine: boolean }): JSX.Element {
+function MessageBubble({
+  message,
+  mine,
+  deviceName,
+}: {
+  message: LocalMessage;
+  mine: boolean;
+  deviceName?: string;
+}): JSX.Element {
+  const displayDeviceName =
+    message.senderDeviceName ?? deviceName ?? (mine ? session.value?.deviceName : undefined);
+
   return (
     <div class={cx("mt-[9px] flex", mine ? "justify-end" : "justify-start")}>
       <div
@@ -101,6 +140,17 @@ function MessageBubble({ message, mine }: { message: LocalMessage; mine: boolean
             : "rounded-bl-[5px] border border-line bg-surface text-ink",
         )}
       >
+        {displayDeviceName && (
+          <div
+            class={cx(
+              "mb-1 max-w-full truncate text-[11px] font-medium leading-tight",
+              mine ? "text-on-accent/75" : "text-subtle",
+            )}
+            title={displayDeviceName}
+          >
+            {displayDeviceName}
+          </div>
+        )}
         {message.text && <div class="whitespace-pre-wrap break-words"><Linkify text={message.text} /></div>}
         {message.file && <FileAttachment message={message} mine={mine} />}
         <div

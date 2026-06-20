@@ -136,6 +136,7 @@ export interface SendMessageResponse {
 export interface PendingMessage {
   id: string;
   senderDeviceId: string;
+  senderDeviceName: string;
   encryptedPayload: string | null;
   iv: string | null;
   fileR2Key: string | null;

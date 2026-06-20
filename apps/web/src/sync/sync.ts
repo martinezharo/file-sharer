@@ -114,6 +114,7 @@ async function processIncoming(
       id: pendingMessage.id,
       direction: "in",
       senderDeviceId: pendingMessage.senderDeviceId,
+      senderDeviceName: pendingMessage.senderDeviceName,
       text,
       file,
       createdAt: pendingMessage.createdAt,

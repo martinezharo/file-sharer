@@ -99,6 +99,7 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
   const rows = await c.env.DB.prepare(
     `SELECT m.id AS id,
             m.sender_device_id AS senderDeviceId,
+            COALESCE(d.name, m.sender_device_id) AS senderDeviceName,
             m.encrypted_payload AS encryptedPayload,
             m.iv AS iv,
             m.file_r2_key AS fileR2Key,
@@ -108,6 +109,7 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
             m.created_at AS createdAt
        FROM messages m
        JOIN delivery_status ds ON ds.message_id = m.id
+       LEFT JOIN devices d ON d.id = m.sender_device_id AND d.group_id = m.group_id
       WHERE ds.device_id = ?
         AND ds.downloaded_at IS NULL
         AND m.created_at > ?

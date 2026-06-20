@@ -25,6 +25,7 @@ export interface LocalMessage {
   id: string;
   direction: "in" | "out";
   senderDeviceId: string;
+  senderDeviceName?: string;
   text?: string;
   file?: FileRef;
   createdAt: number;
