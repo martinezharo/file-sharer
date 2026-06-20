@@ -105,7 +105,7 @@ export function Chat(): JSX.Element {
 function EmptyState(): JSX.Element {
   return (
     <div class="m-auto flex max-w-[360px] flex-col items-center gap-3.5 px-5 py-10 text-center">
-      <div class="grid size-14 place-items-center rounded-xl2 border border-line bg-surface text-accent shadow-soft [&_svg]:size-[26px]">
+      <div class="grid size-14 place-items-center rounded-xl2 bg-surface text-accent shadow-pop dark:bg-surface-2 [&_svg]:size-[26px]">
         <Lock />
       </div>
       <div class="font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-accent">
@@ -140,7 +140,7 @@ function MessageBubble({
           message.file ? "p-[7px]" : "px-[13px] py-[9px]",
           mine
             ? "rounded-br-[5px] bg-accent text-on-accent"
-            : "rounded-bl-[5px] border border-line bg-surface text-ink",
+            : "rounded-bl-[5px] bg-surface text-ink dark:bg-surface-2",
         )}
       >
         {displayDeviceName && (
@@ -257,7 +257,7 @@ function Composer(): JSX.Element {
 
   return (
     <div class="flex-none px-6 pb-[calc(16px+env(safe-area-inset-bottom))] pt-2 max-md:px-[14px] max-md:pb-[calc(14px+env(safe-area-inset-bottom))]">
-      <div class="mx-auto flex max-w-[760px] items-end gap-1.5 rounded-[24px] border border-line-strong bg-surface px-2 py-2 shadow-soft">
+      <div class="mx-auto flex max-w-[760px] items-end gap-1.5 rounded-[24px] bg-surface px-2 py-2 shadow-pop dark:bg-surface-2">
         <input ref={fileRef} type="file" multiple hidden onChange={onPickFile} />
         <button
           type="button"

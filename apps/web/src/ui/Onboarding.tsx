@@ -39,7 +39,7 @@ export function Onboarding(): JSX.Element {
 
   return (
     <div class="bg-grad grid min-h-full place-items-center p-6">
-      <div class="w-full max-w-[420px] rounded-xl3 border border-line bg-surface p-9 shadow-float max-md:rounded-xl2 max-md:p-[22px]">
+      <div class="w-full max-w-[420px] rounded-xl3 bg-surface p-9 shadow-float max-md:rounded-xl2 max-md:p-[22px]">
         <div class="mb-7 flex flex-col items-center gap-4 text-center">
           <Logo size="lg" />
           <div>
@@ -121,7 +121,7 @@ function Choice({
   return (
     <button
       onClick={onClick}
-      class="group flex w-full items-center gap-3.5 rounded-card border border-line-strong bg-surface px-4 py-[15px] text-left transition hover:border-accent hover:bg-surface-2 hover:shadow-pop active:translate-y-px"
+      class="group flex w-full items-center gap-3.5 rounded-card bg-surface-3 px-4 py-[15px] text-left transition hover:shadow-pop hover:ring-1 hover:ring-inset hover:ring-accent/40 active:translate-y-px"
     >
       <span class="grid size-[42px] flex-none place-items-center rounded-[10px] bg-accent-soft text-accent [&_svg]:size-[21px]">
         {icon}
@@ -222,7 +222,7 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
         On a device already in the space, open <strong class="text-ink">Devices → Add device</strong>{" "}
         and scan this code.
       </p>
-      <div class="rounded-xl2 border border-line bg-white p-4 shadow-pop">
+      <div class="rounded-xl2 bg-white p-4 shadow-pop">
         <canvas ref={canvasRef} class="block rounded-lg" />
       </div>
 

@@ -68,7 +68,7 @@ export function DeviceManager(): JSX.Element {
             {devices.map((device) => (
               <div
                 key={device.id}
-                class="flex items-center gap-3.5 rounded-card border border-line bg-surface px-[15px] py-[13px] shadow-soft transition hover:border-line-strong"
+                class="flex items-center gap-3.5 rounded-card bg-surface px-[15px] py-[13px] shadow-soft transition hover:shadow-pop dark:bg-surface-2"
               >
                 <div class="grid size-[42px] flex-none place-items-center rounded-xl bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_80%,#fff)_0%,var(--c-accent)_55%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)] font-mono text-[14px] font-medium text-white ring-1 ring-inset ring-white/20">
                   {initials(device.name)}

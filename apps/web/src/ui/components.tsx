@@ -180,7 +180,7 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
       onClick={onClose}
     >
       <div
-        class="animate-modal-in w-full max-w-[440px] overflow-hidden rounded-xl3 border border-line bg-elevated shadow-float"
+        class="animate-modal-in w-full max-w-[440px] overflow-hidden rounded-xl3 bg-elevated shadow-float"
         onClick={(e) => e.stopPropagation()}
       >
         <header class="flex items-center justify-between py-4 pl-[22px] pr-[18px]">
