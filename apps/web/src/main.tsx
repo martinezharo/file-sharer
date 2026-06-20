@@ -1,5 +1,6 @@
 import { render } from "preact";
 import { resumeLinking } from "./actions";
+import { consumeSharedContent } from "./share/incoming";
 import { loadMessages } from "./state/messages";
 import { loadSession, session } from "./state/session";
 import { startSync } from "./sync/sync";
@@ -17,6 +18,7 @@ async function bootstrap(): Promise<void> {
   } else {
     await resumeLinking();
   }
+  await consumeSharedContent();
 }
 
 const root = document.getElementById("app");

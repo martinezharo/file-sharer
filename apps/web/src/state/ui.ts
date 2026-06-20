@@ -4,6 +4,9 @@ export type View = "chat" | "devices";
 
 export const view = signal<View>("chat");
 
+/** Text to push into the chat composer (e.g. from the Web Share Target). */
+export const composerDraft = signal<string>("");
+
 /** Connectivity hint shown in the header (best-effort). */
 export const online = signal(navigator.onLine);
 

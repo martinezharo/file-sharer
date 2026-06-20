@@ -24,8 +24,23 @@ export default defineConfig({
           { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "/icon-maskable.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
         ],
+        // Let the OS share sheet send text & files to this installed PWA. The
+        // POST is intercepted in public/share-target.sw.js (see importScripts).
+        share_target: {
+          action: "/share-target",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            title: "title",
+            text: "text",
+            url: "url",
+            files: [{ name: "files", accept: ["*/*"] }],
+          },
+        },
       },
       workbox: {
+        // Pull in the Web Share Target fetch handler alongside the generated SW.
+        importScripts: ["/share-target.sw.js"],
         // Never let the service worker serve the API from cache.
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ["**/*.{js,css,html,svg,woff2}"],
