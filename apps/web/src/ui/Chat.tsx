@@ -11,7 +11,7 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { saveFile, sendFileMessage, sendTextMessage } from "../actions";
+import { saveFile, sendFileMessages, sendTextMessage } from "../actions";
 import { api } from "../api/client";
 import { messages } from "../state/messages";
 import { authHeaders, session } from "../state/session";
@@ -245,8 +245,8 @@ function Composer(): JSX.Element {
 
   function onPickFile(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) void sendFileMessage(file);
+    const files = Array.from(input.files ?? []);
+    if (files.length > 0) void sendFileMessages(files);
     input.value = "";
   }
 
@@ -255,7 +255,7 @@ function Composer(): JSX.Element {
   return (
     <div class="flex-none px-6 pb-[calc(16px+env(safe-area-inset-bottom))] pt-2 max-md:px-[14px] max-md:pb-[calc(14px+env(safe-area-inset-bottom))]">
       <div class="mx-auto flex max-w-[760px] items-end gap-1.5 rounded-[24px] border border-line-strong bg-surface px-2 py-2 shadow-soft">
-        <input ref={fileRef} type="file" hidden onChange={onPickFile} />
+        <input ref={fileRef} type="file" multiple hidden onChange={onPickFile} />
         <button
           type="button"
           aria-label="Attach file"

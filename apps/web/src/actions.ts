@@ -271,6 +271,12 @@ export async function sendFileMessage(file: File): Promise<void> {
   }
 }
 
+export async function sendFileMessages(files: readonly File[]): Promise<void> {
+  for (const file of files) {
+    await sendFileMessage(file);
+  }
+}
+
 /** Trigger a browser download of a (already decrypted, locally cached) file. */
 export async function saveFile(message: LocalMessage): Promise<void> {
   if (!message.file) return;
