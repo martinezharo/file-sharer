@@ -1,4 +1,4 @@
-import { ChevronRight, Link2, Plus, ShieldCheck } from "lucide-preact";
+import { Check, ChevronRight, Copy, Link2, Plus, ShieldCheck } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { cancelLinking, createSpace, linking, startLinking } from "../actions";
@@ -171,6 +171,7 @@ interface LinkFlowProps {
 function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.Element {
   const link = linking.value;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (link && canvasRef.current) {
@@ -203,8 +204,20 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
     );
   }
 
+  const qrText = link.qrText;
+
+  async function copyCode(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(qrText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      showToast("Couldn't copy to clipboard", "error");
+    }
+  }
+
   return (
-    <div class="flex flex-col items-center gap-[18px] text-center">
+    <div class="flex flex-col items-center gap-5 text-center">
       <p class="text-sm leading-relaxed text-subtle">
         On a device already in the space, open <strong class="text-ink">Devices → Add device</strong>{" "}
         and scan this code.
@@ -213,32 +226,32 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
         <canvas ref={canvasRef} class="block rounded-lg" />
       </div>
 
-      <details class="w-full">
-        <summary class="cursor-pointer list-none p-1.5 text-center text-[13px] font-medium text-muted transition hover:text-ink [&::-webkit-details-marker]:hidden">
-          Can&apos;t scan? Copy the code instead
-        </summary>
-        <textarea
-          readOnly
-          rows={4}
-          class="field-input mt-2.5 break-all font-mono text-[12.5px] leading-relaxed text-subtle"
-          value={link.qrText}
-          onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-        />
-      </details>
-
       {link.status === "error" ? (
         <p class="inline-flex items-center gap-2 rounded-full bg-danger-soft px-3.5 py-2 text-[13.5px] text-danger">
           Linking failed: {link.error}
         </p>
       ) : (
-        <span class="inline-flex items-center gap-2.5 rounded-full bg-surface-3 px-3.5 py-2 text-[13.5px] text-subtle">
-          <Spinner /> Waiting for the other device…
+        <span class="inline-flex items-center gap-2.5 rounded-full bg-surface-3 px-3.5 py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-subtle">
+          <Spinner /> Waiting for device
         </span>
       )}
 
-      <Button variant="ghost" type="button" onClick={() => void cancelLinking()}>
-        Cancel
-      </Button>
+      <div class="flex w-full flex-col gap-2">
+        <Button variant="secondary" type="button" onClick={() => void copyCode()}>
+          {copied ? (
+            <>
+              <Check /> Code copied
+            </>
+          ) : (
+            <>
+              <Copy /> Can&apos;t scan? Copy code
+            </>
+          )}
+        </Button>
+        <Button variant="ghost" type="button" onClick={() => void cancelLinking()}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
