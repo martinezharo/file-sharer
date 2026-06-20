@@ -103,17 +103,21 @@ export function IconButton({ label, class: cls, children, ...rest }: IconButtonP
 export function Logo({ size = "md" }: { size?: "md" | "lg" }): JSX.Element {
   const lg = size === "lg";
   return (
-    <span class="inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em] text-ink">
+    <span class="inline-flex items-center gap-2.5 text-ink">
       <span
         class={cx(
-          "grid place-items-center text-white shadow-accent flex-none",
-          "bg-[linear-gradient(145deg,var(--c-accent)_0%,color-mix(in_srgb,var(--c-accent)_60%,#b06bff)_100%)]",
-          lg ? "size-14 rounded-2xl [&_svg]:size-[30px]" : "size-[34px] rounded-[10px] [&_svg]:size-[19px]",
+          "grid place-items-center text-white shadow-accent flex-none ring-1 ring-inset ring-white/20",
+          "bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_82%,#fff)_0%,var(--c-accent)_52%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)]",
+          lg ? "size-14 rounded-[18px] [&_svg]:size-[30px]" : "size-[34px] rounded-[11px] [&_svg]:size-[19px]",
         )}
       >
         <Shield strokeWidth={2.25} fill="currentColor" stroke="none" />
       </span>
-      {!lg && <span class="text-base">file&#8209;sharer</span>}
+      {!lg && (
+        <span class="font-mono text-[12.5px] font-medium uppercase tracking-[0.16em] text-ink">
+          file<span class="text-accent">·</span>sharer
+        </span>
+      )}
     </span>
   );
 }

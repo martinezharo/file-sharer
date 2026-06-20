@@ -108,9 +108,12 @@ function EmptyState(): JSX.Element {
       <div class="grid size-14 place-items-center rounded-xl2 border border-line bg-surface text-accent shadow-soft [&_svg]:size-[26px]">
         <Lock />
       </div>
-      <h3 class="text-[17px]">Your private channel</h3>
+      <div class="font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-accent">
+        End-to-end encrypted
+      </div>
+      <h3 class="-mt-1.5 text-[19px]">Your private channel</h3>
       <p class="text-sm leading-relaxed text-muted">
-        Messages and files you send are end-to-end encrypted and synced only across your own
+        Messages and files you send are encrypted on this device and synced only across your own
         linked devices.
       </p>
     </div>
@@ -155,7 +158,7 @@ function MessageBubble({
         {message.file && <FileAttachment message={message} mine={mine} />}
         <div
           class={cx(
-            "mt-1 flex items-center justify-end gap-[5px] text-[11px] [&_svg]:size-[14px]",
+            "mt-1 flex items-center justify-end gap-[5px] font-mono text-[10px] tracking-[0.03em] [&_svg]:size-[14px]",
             mine ? "text-on-accent/70" : "text-muted",
           )}
         >
@@ -194,7 +197,7 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         <div class="truncate text-[13.5px] font-medium" title={file.name}>
           {file.name}
         </div>
-        <div class={cx("text-xs", mine ? "text-on-accent/70" : "text-muted")}>
+        <div class={cx("font-mono text-[11px] tracking-[0.02em]", mine ? "text-on-accent/70" : "text-muted")}>
           {formatBytes(file.size)}
         </div>
       </div>
