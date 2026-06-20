@@ -1,0 +1,248 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   file-sharer — design tokens
+   Map Tailwind theme colors to semantic CSS variables so utilities like
+   `bg-surface` / `text-ink` automatically switch with the color scheme.
+   ========================================================================== */
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-surface-3: var(--c-surface-3);
+  --color-elevated: var(--c-elevated);
+
+  --color-ink: var(--c-ink);
+  --color-subtle: var(--c-subtle);
+  --color-muted: var(--c-muted);
+
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-press: var(--c-accent-press);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-on-accent: var(--c-on-accent);
+
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-success: var(--c-success);
+
+  --radius-card: 14px;
+  --radius-xl2: 20px;
+  --radius-xl3: 24px;
+
+  --shadow-soft: 0 1px 2px rgba(17, 17, 26, 0.04), 0 1px 3px rgba(17, 17, 26, 0.06);
+  --shadow-pop: 0 4px 14px rgba(17, 17, 26, 0.07), 0 2px 6px rgba(17, 17, 26, 0.05);
+  --shadow-float: 0 24px 48px -12px rgba(17, 17, 26, 0.18), 0 8px 16px -8px rgba(17, 17, 26, 0.1);
+  --shadow-accent: 0 8px 20px -6px var(--c-accent-glow);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --animate-spin-fast: spin 0.65s linear infinite;
+}
+
+:root {
+  --c-accent: #5b5bd6;
+  --c-accent-hover: #5151c9;
+  --c-accent-press: #4848b8;
+  --c-accent-soft: color-mix(in srgb, var(--c-accent) 12%, transparent);
+  --c-accent-glow: color-mix(in srgb, var(--c-accent) 45%, transparent);
+  --c-on-accent: #ffffff;
+
+  --c-bg: #f6f6f7;
+  --c-surface: #ffffff;
+  --c-surface-2: #fbfbfc;
+  --c-surface-3: #f1f1f3;
+  --c-elevated: #ffffff;
+
+  --c-ink: #1a1a1e;
+  --c-subtle: #52525b;
+  --c-muted: #82828c;
+
+  --c-line: rgba(17, 17, 26, 0.08);
+  --c-line-strong: rgba(17, 17, 26, 0.14);
+
+  --c-danger: #e5484d;
+  --c-danger-soft: color-mix(in srgb, var(--c-danger) 12%, transparent);
+  --c-success: #30a46c;
+
+  --bg-grad: radial-gradient(120% 120% at 50% 0%, #ffffff 0%, #f5f5f7 55%, #f1f1f3 100%);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--c-accent) 35%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-accent: #7c7cf0;
+    --c-accent-hover: #8c8cf3;
+    --c-accent-press: #9a9af5;
+    --c-accent-soft: color-mix(in srgb, var(--c-accent) 16%, transparent);
+    --c-accent-glow: color-mix(in srgb, var(--c-accent) 40%, transparent);
+    --c-on-accent: #0c0c14;
+
+    --c-bg: #0a0a0c;
+    --c-surface: #141417;
+    --c-surface-2: #1a1a1e;
+    --c-surface-3: #222228;
+    --c-elevated: #1c1c21;
+
+    --c-ink: #f3f3f5;
+    --c-subtle: #b8b8c0;
+    --c-muted: #85858f;
+
+    --c-line: rgba(255, 255, 255, 0.08);
+    --c-line-strong: rgba(255, 255, 255, 0.14);
+
+    --c-danger: #ff6166;
+    --c-danger-soft: color-mix(in srgb, var(--c-danger) 16%, transparent);
+    --c-success: #3dd68c;
+
+    --bg-grad: radial-gradient(120% 120% at 50% 0%, #16161a 0%, #0d0d10 55%, #0a0a0c 100%);
+
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-pop: 0 4px 14px rgba(0, 0, 0, 0.45);
+    --shadow-float: 0 28px 60px -12px rgba(0, 0, 0, 0.7), 0 8px 20px -8px rgba(0, 0, 0, 0.5);
+
+    color-scheme: dark;
+  }
+}
+
+/* ============================================================================
+   Base
+   ========================================================================== */
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--c-bg);
+    color: var(--c-ink);
+    font-size: 15px;
+    line-height: 1.5;
+    letter-spacing: -0.011em;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+    font-weight: 650;
+    margin: 0;
+  }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    color: inherit;
+  }
+
+  ::selection {
+    background: var(--c-accent-soft);
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+    border-radius: 10px;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-line-strong) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--c-line-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+/* ============================================================================
+   A few composite primitives kept as classes (repeated, stateful patterns)
+   ========================================================================== */
+@layer components {
+  .bg-grad {
+    background: var(--bg-grad);
+  }
+
+  .field-input {
+    @apply w-full rounded-card border border-line-strong bg-surface px-3.5 py-3 text-[14.5px] text-ink transition;
+  }
+  .field-input::placeholder {
+    color: var(--c-muted);
+  }
+  .field-input:focus {
+    outline: none;
+    border-color: var(--c-accent);
+    box-shadow: var(--ring);
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid color-mix(in srgb, var(--c-accent) 35%, transparent);
+    border-top-color: var(--c-accent);
+    border-radius: 50%;
+    animation: var(--animate-spin-fast);
+    vertical-align: middle;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease;
+}
+.animate-modal-in {
+  animation: modal-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.animate-toast-in {
+  animation: toast-in 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

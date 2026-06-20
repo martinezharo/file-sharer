@@ -1,0 +1,32 @@
+{
+  "name": "@file-sharer/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@file-sharer/shared": "workspace:*",
+    "@preact/signals": "^2.0.1",
+    "idb": "^8.0.0",
+    "jsqr": "^1.4.0",
+    "lucide-preact": "^1.21.0",
+    "preact": "^10.25.4",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/qrcode": "^1.5.5",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^2.1.8"
+  }
+}
