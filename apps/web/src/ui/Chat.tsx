@@ -15,6 +15,7 @@ import { saveFile, sendFileMessages, sendTextMessage } from "../actions";
 import { api } from "../api/client";
 import { messages } from "../state/messages";
 import { authHeaders, session } from "../state/session";
+import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
 import type { LocalMessage } from "../types";
 import { cx, formatBytes, formatTime, IconButton, Spinner } from "./components";
@@ -237,6 +238,22 @@ function Composer(): JSX.Element {
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
   }
+
+  // Pull in shared text (Web Share Target). `subscribe` also fires with the
+  // current value on mount, covering shares that arrive before this renders.
+  useEffect(
+    () =>
+      composerDraft.subscribe((draft) => {
+        if (!draft) return;
+        composerDraft.value = "";
+        setText((prev) => (prev ? `${prev}\n${draft}` : draft));
+        requestAnimationFrame(() => {
+          autosize();
+          taRef.current?.focus();
+        });
+      }),
+    [],
+  );
 
   function submit(): void {
     const value = text.trim();
