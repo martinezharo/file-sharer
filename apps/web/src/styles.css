@@ -38,10 +38,10 @@
   --shadow-float: 0 24px 48px -12px rgba(17, 17, 26, 0.18), 0 8px 16px -8px rgba(17, 17, 26, 0.1);
   --shadow-accent: 0 8px 20px -6px var(--c-accent-glow);
 
-  --font-sans: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  --font-display: "Bricolage Grotesque", "Hanken Grotesk", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: "Hanken Grotesk Variable", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Hanken Grotesk Variable", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   --animate-spin-fast: spin 0.65s linear infinite;
 }

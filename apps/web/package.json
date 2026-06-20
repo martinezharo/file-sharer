@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@file-sharer/shared": "workspace:*",
+    "@fontsource-variable/bricolage-grotesque": "^5.2.10",
+    "@fontsource-variable/hanken-grotesk": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@preact/signals": "^2.0.1",
     "idb": "^8.0.0",
     "jsqr": "^1.4.0",
