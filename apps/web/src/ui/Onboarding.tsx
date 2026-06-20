@@ -43,12 +43,14 @@ export function Onboarding(): JSX.Element {
         <div class="mb-7 flex flex-col items-center gap-4 text-center">
           <Logo size="lg" />
           <div>
-            <h1 class="text-2xl">file-sharer</h1>
+            <h1 class="text-[28px] tracking-[-0.03em]">
+              file<span class="text-accent">·</span>sharer
+            </h1>
             <p class="mx-auto mt-2 max-w-[300px] text-[14.5px] leading-relaxed text-muted">
               End-to-end encrypted text &amp; file sharing across your own devices.
             </p>
           </div>
-          <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent [&_svg]:size-3.5">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent [&_svg]:size-3.5">
             <ShieldCheck />
             Zero-knowledge encryption
           </span>

@@ -47,7 +47,10 @@ export function DeviceManager(): JSX.Element {
       <div class="mx-auto flex max-w-[640px] flex-col gap-[18px]">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <h2 class="text-[15px] font-semibold">Linked devices</h2>
+            <div class="mb-1 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-accent">
+              Workspace
+            </div>
+            <h2 class="text-[18px] font-semibold">Linked devices</h2>
             <p class="text-[12.5px] text-muted">Everyone with access to this encrypted space.</p>
           </div>
           <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
@@ -67,19 +70,19 @@ export function DeviceManager(): JSX.Element {
                 key={device.id}
                 class="flex items-center gap-3.5 rounded-card border border-line bg-surface px-[15px] py-[13px] shadow-soft transition hover:border-line-strong"
               >
-                <div class="grid size-[42px] flex-none place-items-center rounded-xl bg-[linear-gradient(145deg,var(--c-accent)_0%,color-mix(in_srgb,var(--c-accent)_55%,#b06bff)_100%)] text-[15px] font-semibold text-white">
+                <div class="grid size-[42px] flex-none place-items-center rounded-xl bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_80%,#fff)_0%,var(--c-accent)_55%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)] font-mono text-[14px] font-medium text-white ring-1 ring-inset ring-white/20">
                   {initials(device.name)}
                 </div>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 text-[14.5px] font-medium">
                     <span class="truncate">{device.name}</span>
                     {device.id === myId && (
-                      <span class="flex-none rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent">
+                      <span class="flex-none rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.1em] text-accent">
                         This device
                       </span>
                     )}
                   </div>
-                  <div class="text-[12.5px] text-muted">
+                  <div class="font-mono text-[11.5px] text-muted">
                     Linked {new Date(device.createdAt).toLocaleString()}
                   </div>
                 </div>

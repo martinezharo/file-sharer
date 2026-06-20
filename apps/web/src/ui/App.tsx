@@ -61,7 +61,7 @@ export function App(): JSX.Element {
         </nav>
 
         <div class="mt-auto flex flex-col gap-[3px]">
-          <div class="flex items-center gap-2 px-[11px] py-2 text-[12.5px] font-medium text-muted">
+          <div class="flex items-center gap-2.5 px-[11px] py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
             <span
               class={cx(
                 "size-2 flex-none rounded-full",
@@ -109,9 +109,7 @@ export function App(): JSX.Element {
 
         {/* Desktop view header */}
         <div class="hidden h-[60px] flex-none items-center justify-between gap-3 border-b border-line px-6 md:flex">
-          <div>
-            <div class="text-base font-semibold tracking-[-0.02em]">{meta}</div>
-          </div>
+          <div class="font-display text-[17px] font-semibold tracking-[-0.022em]">{meta}</div>
         </div>
 
         <main class="flex min-h-0 flex-1 flex-col">
