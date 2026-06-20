@@ -1,10 +1,11 @@
-import { LogOut, MessagesSquare, MonitorSmartphone } from "lucide-preact";
+import { AlertTriangle, LogOut, MessagesSquare, MonitorSmartphone } from "lucide-preact";
+import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 import { logout } from "../actions";
 import { ready, session } from "../state/session";
 import { online, view, type View } from "../state/ui";
 import { Chat } from "./Chat";
-import { cx, IconButton, Logo, Spinner, Toasts } from "./components";
+import { Button, cx, IconButton, Logo, Modal, Spinner, Toasts } from "./components";
 import { DeviceManager } from "./DeviceManager";
 import { Onboarding } from "./Onboarding";
 
@@ -14,6 +15,8 @@ const NAV: Array<{ id: View; label: string; icon: typeof MessagesSquare }> = [
 ];
 
 export function App(): JSX.Element {
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+
   if (!ready.value) {
     return (
       <div class="bg-grad grid h-full place-items-center">
@@ -33,6 +36,12 @@ export function App(): JSX.Element {
 
   const current = view.value;
   const meta = current === "chat" ? "Messages" : "Devices";
+
+  const requestLeave = (): void => setConfirmLeaveOpen(true);
+  const confirmLeave = async (): Promise<void> => {
+    setConfirmLeaveOpen(false);
+    await logout();
+  };
 
   return (
     <div class="bg-grad flex h-full">
@@ -63,7 +72,7 @@ export function App(): JSX.Element {
             />
             {online.value ? "Connected" : "Offline"}
           </div>
-          <NavItem danger onClick={() => void logout()}>
+          <NavItem danger onClick={requestLeave}>
             <LogOut />
             Leave space
           </NavItem>
@@ -92,7 +101,7 @@ export function App(): JSX.Element {
                 </button>
               ))}
             </div>
-            <IconButton label="Leave space" onClick={() => void logout()}>
+            <IconButton label="Leave space" onClick={requestLeave}>
               <LogOut />
             </IconButton>
           </div>
@@ -109,6 +118,33 @@ export function App(): JSX.Element {
           {current === "chat" ? <Chat /> : <DeviceManager />}
         </main>
       </div>
+
+      {confirmLeaveOpen && (
+        <Modal title="Leave this space?" onClose={() => setConfirmLeaveOpen(false)}>
+          <div class="flex gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
+            <AlertTriangle class="mt-0.5 size-[19px] flex-none" />
+            <p class="text-[13.5px] font-medium leading-5">
+              This will remove the space, messages, files, and encryption keys from this device.
+            </p>
+          </div>
+          <p class="text-[13.5px] leading-5 text-subtle">
+            Other devices in the space will keep their access. You can link this device again later from
+            another device.
+          </p>
+          <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+            <Button
+              class="sm:w-auto"
+              variant="secondary"
+              onClick={() => setConfirmLeaveOpen(false)}
+            >
+              Stay
+            </Button>
+            <Button class="sm:w-auto" variant="danger" onClick={() => void confirmLeave()}>
+              Leave space
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       <Toasts />
     </div>
