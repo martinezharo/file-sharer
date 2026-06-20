@@ -9,7 +9,14 @@ export default defineConfig({
     preact(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icon.svg", "icon-maskable.svg"],
+      includeAssets: [
+        "icon.svg",
+        "icon-maskable.svg",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-maskable-192.png",
+        "icon-maskable-512.png",
+      ],
       manifest: {
         name: "file-sharer",
         short_name: "file-sharer",
@@ -21,6 +28,12 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         icons: [
+          // Raster PNGs first: Android needs these to mint a WebAPK (required for
+          // the Web Share Target to register with the OS share sheet).
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+          { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
           { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "/icon-maskable.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
         ],
