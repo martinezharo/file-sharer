@@ -63,6 +63,22 @@ function randomIv() {
   return randomBytes(IV_BYTES);
 }
 
+/**
+ * Build AES-GCM "additional authenticated data". Binding a context string (e.g.
+ * the message id + role) to each ciphertext means a malicious server cannot move
+ * a ciphertext from one message/slot/role to another: decryption with the wrong
+ * context fails. AAD is authenticated but not encrypted.
+ */
+function aad(context?: string): Uint8Array<ArrayBuffer> | undefined {
+  if (context === undefined) return undefined;
+  const bytes = new TextEncoder().encode(context);
+  // Copy into a fresh ArrayBuffer-backed view (TextEncoder may return an
+  // ArrayBufferLike-backed array, which doesn't satisfy BufferSource here).
+  const out = new Uint8Array(bytes.byteLength);
+  out.set(bytes);
+  return out;
+}
+
 /** SHA-256 of a UTF-8 string as lowercase hex (matches the server). */
 export async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -130,6 +146,7 @@ export interface WrappedPairing {
 export async function wrapPairingPackage(
   recipientPublicKey: CryptoKey,
   payload: PairingPayload,
+  pairingId?: string,
 ): Promise<WrappedPairing> {
   const ephemeral = await crypto.subtle.generateKey({ name: EC, namedCurve: CURVE }, false, [
     "deriveKey",
@@ -137,7 +154,7 @@ export async function wrapPairingPackage(
   const sharedKey = await deriveSharedKey(ephemeral.privateKey, recipientPublicKey);
   const iv = randomIv();
   const ciphertext = await crypto.subtle.encrypt(
-    { name: AES, iv },
+    { name: AES, iv, additionalData: aad(pairingId && `pairing:${pairingId}`) },
     sharedKey,
     new TextEncoder().encode(JSON.stringify(payload)),
   );
@@ -153,13 +170,14 @@ export async function unwrapPairingPackage(
   myPrivateKey: CryptoKey,
   ephemeralPublicKey: string,
   wrappedPackage: string,
+  pairingId?: string,
 ): Promise<PairingPayload> {
   const ephemeralPublic = await importPublicKey(ephemeralPublicKey);
   const sharedKey = await deriveSharedKey(myPrivateKey, ephemeralPublic);
   const wrappedJson = new TextDecoder().decode(base64UrlToBuf(wrappedPackage));
   const { iv, ct } = JSON.parse(wrappedJson) as { iv: string; ct: string };
   const plaintext = await crypto.subtle.decrypt(
-    { name: AES, iv: base64UrlToBuf(iv) },
+    { name: AES, iv: base64UrlToBuf(iv), additionalData: aad(pairingId && `pairing:${pairingId}`) },
     sharedKey,
     base64UrlToBuf(ct),
   );
@@ -175,10 +193,14 @@ export interface EncryptedText {
   iv: string;
 }
 
-export async function encryptText(groupKey: CryptoKey, text: string): Promise<EncryptedText> {
+export async function encryptText(
+  groupKey: CryptoKey,
+  text: string,
+  context?: string,
+): Promise<EncryptedText> {
   const iv = randomIv();
   const ciphertext = await crypto.subtle.encrypt(
-    { name: AES, iv },
+    { name: AES, iv, additionalData: aad(context) },
     groupKey,
     new TextEncoder().encode(text),
   );
@@ -189,9 +211,10 @@ export async function decryptText(
   groupKey: CryptoKey,
   ciphertext: string,
   iv: string,
+  context?: string,
 ): Promise<string> {
   const plaintext = await crypto.subtle.decrypt(
-    { name: AES, iv: base64UrlToBuf(iv) },
+    { name: AES, iv: base64UrlToBuf(iv), additionalData: aad(context) },
     groupKey,
     base64UrlToBuf(ciphertext),
   );
@@ -199,16 +222,42 @@ export async function decryptText(
 }
 
 /** Encrypt a JSON-serialisable value (e.g. file metadata). */
-export async function encryptJson(groupKey: CryptoKey, value: unknown): Promise<EncryptedText> {
-  return encryptText(groupKey, JSON.stringify(value));
+export async function encryptJson(
+  groupKey: CryptoKey,
+  value: unknown,
+  context?: string,
+): Promise<EncryptedText> {
+  return encryptText(groupKey, JSON.stringify(value), context);
 }
 
 export async function decryptJson<T>(
   groupKey: CryptoKey,
   ciphertext: string,
   iv: string,
+  context?: string,
 ): Promise<T> {
-  return JSON.parse(await decryptText(groupKey, ciphertext, iv)) as T;
+  return JSON.parse(await decryptText(groupKey, ciphertext, iv, context)) as T;
+}
+
+/**
+ * Encrypt/decrypt a device name with the GroupKey, bound to the device id so a
+ * name ciphertext cannot be transplanted onto another device.
+ */
+export function encryptName(
+  groupKey: CryptoKey,
+  name: string,
+  deviceId: string,
+): Promise<EncryptedText> {
+  return encryptText(groupKey, name, `name:${deviceId}`);
+}
+
+export function decryptName(
+  groupKey: CryptoKey,
+  ciphertext: string,
+  iv: string,
+  deviceId: string,
+): Promise<string> {
+  return decryptText(groupKey, ciphertext, iv, `name:${deviceId}`);
 }
 
 export interface EncryptedFile {
@@ -217,9 +266,17 @@ export interface EncryptedFile {
 }
 
 /** One-shot AES-GCM over a whole file buffer (fine for files up to ~50 MB). */
-export async function encryptFile(groupKey: CryptoKey, data: ArrayBuffer): Promise<EncryptedFile> {
+export async function encryptFile(
+  groupKey: CryptoKey,
+  data: ArrayBuffer,
+  context?: string,
+): Promise<EncryptedFile> {
   const iv = randomIv();
-  const ciphertext = await crypto.subtle.encrypt({ name: AES, iv }, groupKey, data);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: AES, iv, additionalData: aad(context) },
+    groupKey,
+    data,
+  );
   return { ciphertext, iv: bufToBase64Url(iv) };
 }
 
@@ -227,6 +284,11 @@ export async function decryptFile(
   groupKey: CryptoKey,
   data: ArrayBuffer,
   iv: string,
+  context?: string,
 ): Promise<ArrayBuffer> {
-  return crypto.subtle.decrypt({ name: AES, iv: base64UrlToBuf(iv) }, groupKey, data);
+  return crypto.subtle.decrypt(
+    { name: AES, iv: base64UrlToBuf(iv), additionalData: aad(context) },
+    groupKey,
+    data,
+  );
 }

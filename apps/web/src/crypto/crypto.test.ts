@@ -4,8 +4,10 @@ import {
   base64UrlToBuf,
   bufToBase64Url,
   decryptFile,
+  decryptName,
   decryptText,
   encryptFile,
+  encryptName,
   encryptText,
   exportGroupKey,
   exportPublicKey,
@@ -74,6 +76,28 @@ describe("file encryption", () => {
     const { ciphertext, iv } = await encryptFile(key, original.buffer);
     const decrypted = new Uint8Array(await decryptFile(key, ciphertext, iv));
     expect(decrypted).toEqual(original);
+  });
+});
+
+describe("AES-GCM additional authenticated data (AAD)", () => {
+  it("round-trips when the same context is supplied", async () => {
+    const key = await generateGroupKey();
+    const { ciphertext, iv } = await encryptText(key, "secret", "text:abc");
+    expect(await decryptText(key, ciphertext, iv, "text:abc")).toBe("secret");
+  });
+
+  it("fails to decrypt when the context differs (no cross-message reuse)", async () => {
+    const key = await generateGroupKey();
+    const { ciphertext, iv } = await encryptText(key, "secret", "text:abc");
+    await expect(decryptText(key, ciphertext, iv, "text:xyz")).rejects.toThrow();
+    await expect(decryptText(key, ciphertext, iv)).rejects.toThrow();
+  });
+
+  it("binds an encrypted device name to its device id", async () => {
+    const key = await generateGroupKey();
+    const { ciphertext, iv } = await encryptName(key, "My laptop", "device-1");
+    expect(await decryptName(key, ciphertext, iv, "device-1")).toBe("My laptop");
+    await expect(decryptName(key, ciphertext, iv, "device-2")).rejects.toThrow();
   });
 });
 

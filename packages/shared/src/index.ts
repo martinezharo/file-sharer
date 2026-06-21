@@ -37,15 +37,24 @@ export const DEVICE_ID_HEADER = "X-Device-Id";
 /** A device as published during registration/pairing (public material only). */
 export interface DeviceDescriptor {
   id: string;
-  name: string;
   /** ECDH P-256 public key, base64url-encoded SPKI. */
   publicKey: string;
 }
 
-/** A device as listed in the management UI. */
+/**
+ * The device's human-readable name, encrypted with the GroupKey so the server
+ * never sees it in the clear (it is PII). `iv` is the AES-GCM IV (base64url).
+ */
+export interface EncryptedName {
+  encryptedName: string;
+  nameIv: string;
+}
+
+/** A device as listed in the management UI (name stays encrypted in transit). */
 export interface DeviceInfo {
   id: string;
-  name: string;
+  encryptedName: string;
+  nameIv: string;
   createdAt: number;
 }
 
@@ -68,6 +77,9 @@ export interface CreateGroupRequest {
   /** SHA-256(groupAuthToken) as lowercase hex. The raw token never leaves clients. */
   authTokenHash: string;
   device: DeviceDescriptor;
+  /** GroupKey-encrypted device name (the first device already holds the key). */
+  encryptedName: string;
+  nameIv: string;
 }
 
 export interface CreateGroupResponse {
@@ -89,6 +101,13 @@ export interface PairingCompleteBody {
   wrappedPackage: string;
   /** Ephemeral ECDH P-256 public key (base64url SPKI) used to derive the wrap key. */
   ephemeralPublicKey: string;
+  /**
+   * GroupKey-encrypted name of the *joining* device. The existing device holds
+   * the GroupKey and the scanned (out-of-band) name, so it encrypts it here;
+   * the joining device never sends its name to the server in the clear.
+   */
+  encryptedName: string;
+  nameIv: string;
 }
 
 export interface PairingCompleteResponse {
@@ -136,7 +155,9 @@ export interface SendMessageResponse {
 export interface PendingMessage {
   id: string;
   senderDeviceId: string;
-  senderDeviceName: string;
+  /** GroupKey-encrypted name of the sender device (null if the device is gone). */
+  senderNameEnc: string | null;
+  senderNameIv: string | null;
   encryptedPayload: string | null;
   iv: string | null;
   fileR2Key: string | null;
