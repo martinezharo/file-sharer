@@ -9,13 +9,12 @@
  */
 
 import {
-  base64UrlToBuf,
-  bufToBase64Url,
   decryptFile,
   decryptJson,
   decryptText,
   encryptFile,
   encryptJson,
+  encryptName,
   encryptText,
   exportGroupKey,
   exportPublicKey,
@@ -46,7 +45,7 @@ interface Auth {
 function headers(auth?: Auth, extra: Record<string, string> = {}): Record<string, string> {
   const h: Record<string, string> = { ...extra };
   if (auth) {
-    h["Authorization"] = `Bearer ${auth.token}`;
+    h.Authorization = `Bearer ${auth.token}`;
     h["X-Device-Id"] = auth.deviceId;
   }
   return h;
@@ -67,10 +66,13 @@ const groupId = randomId();
 const aId = randomId();
 const aAuth: Auth = { token, deviceId: aId };
 
+const aName = await encryptName(groupKey, "Device A", aId);
 const createRes = await postJson("/api/groups", {
   groupId,
   authTokenHash: await sha256Hex(token),
-  device: { id: aId, name: "Device A", publicKey: await exportPublicKey(aKeys.publicKey) },
+  device: { id: aId, publicKey: await exportPublicKey(aKeys.publicKey) },
+  encryptedName: aName.ciphertext,
+  nameIv: aName.iv,
 });
 check("create group returns 200", createRes.ok);
 
@@ -80,20 +82,30 @@ const bId = randomId();
 const pairingId = randomId();
 const bPublic = await exportPublicKey(bKeys.publicKey);
 const reqRes = await postJson(`/api/pairing/${pairingId}/request`, {
-  device: { id: bId, name: "Device B", publicKey: bPublic },
+  device: { id: bId, publicKey: bPublic },
 });
 check("pairing request returns 200", reqRes.ok);
 
 // --- Device A: wrap GroupKey for B and complete ---------------------------
 const recipientPub = await importPublicKey(bPublic);
-const wrapped = await wrapPairingPackage(recipientPub, {
-  groupKey: await exportGroupKey(groupKey),
-  groupAuthToken: token,
-  groupId,
-});
+const wrapped = await wrapPairingPackage(
+  recipientPub,
+  {
+    groupKey: await exportGroupKey(groupKey),
+    groupAuthToken: token,
+    groupId,
+  },
+  pairingId,
+);
+const bName = await encryptName(groupKey, "Device B", bId);
 const completeRes = await postJson(
   `/api/pairing/${pairingId}/complete`,
-  { wrappedPackage: wrapped.wrappedPackage, ephemeralPublicKey: wrapped.ephemeralPublicKey },
+  {
+    wrappedPackage: wrapped.wrappedPackage,
+    ephemeralPublicKey: wrapped.ephemeralPublicKey,
+    encryptedName: bName.ciphertext,
+    nameIv: bName.iv,
+  },
   aAuth,
 );
 check("pairing complete returns 200", completeRes.ok);
@@ -110,6 +122,7 @@ const recovered = await unwrapPairingPackage(
   bKeys.privateKey,
   poll.ephemeralPublicKey!,
   poll.wrappedPackage!,
+  pairingId,
 );
 check("B recovered the correct groupId", recovered.groupId === groupId);
 check("B recovered the correct auth token", recovered.groupAuthToken === token);
@@ -119,7 +132,7 @@ const bAuth: Auth = { token: recovered.groupAuthToken, deviceId: bId };
 // --- Device A: send a text message ----------------------------------------
 const plaintext = "Hello from A 🌍 — secret!";
 const textId = randomId();
-const encText = await encryptText(groupKey, plaintext);
+const encText = await encryptText(groupKey, plaintext, `text:${textId}`);
 const sendTextRes = await postJson(
   "/api/messages",
   { id: textId, encryptedPayload: encText.ciphertext, iv: encText.iv },
@@ -135,18 +148,22 @@ for (let off = 0; off < original.length; off += 65536) {
 }
 const r2Key = randomId();
 const fileId = randomId();
-const encFile = await encryptFile(groupKey, original.buffer);
+const encFile = await encryptFile(groupKey, original.buffer, `file:${fileId}`);
 const upRes = await fetch(`${BASE}/api/files/${r2Key}`, {
   method: "PUT",
   headers: headers(aAuth),
   body: encFile.ciphertext,
 });
 check("file upload returns 200", upRes.ok);
-const metaEnc = await encryptJson(groupKey, {
-  name: "secret.bin",
-  size: original.byteLength,
-  mime: "application/octet-stream",
-});
+const metaEnc = await encryptJson(
+  groupKey,
+  {
+    name: "secret.bin",
+    size: original.byteLength,
+    mime: "application/octet-stream",
+  },
+  `meta:${fileId}`,
+);
 const sendFileRes = await postJson(
   "/api/messages",
   {
@@ -170,20 +187,23 @@ const fileMsg = pending.messages.find((m) => m.id === fileId);
 check("text message present for B", !!textMsg);
 check(
   "B decrypts text to original plaintext",
-  textMsg && (await decryptText(bGroupKey, textMsg.encryptedPayload, textMsg.iv)) === plaintext,
+  textMsg &&
+    (await decryptText(bGroupKey, textMsg.encryptedPayload, textMsg.iv, `text:${textId}`)) ===
+      plaintext,
 );
 
 const meta = await decryptJson<{ name: string; size: number }>(
   bGroupKey,
   fileMsg.fileMeta,
   fileMsg.fileMetaIv,
+  `meta:${fileId}`,
 );
 check("B decrypts file metadata", meta.name === "secret.bin" && meta.size === original.byteLength);
 
 const fileDl = await fetch(`${BASE}/api/files/${fileMsg.fileR2Key}`, { headers: headers(bAuth) });
 check("B downloads encrypted file", fileDl.ok);
 const decrypted = new Uint8Array(
-  await decryptFile(bGroupKey, await fileDl.arrayBuffer(), fileMsg.fileIv),
+  await decryptFile(bGroupKey, await fileDl.arrayBuffer(), fileMsg.fileIv, `file:${fileId}`),
 );
 check(
   "B decrypts file to byte-identical original",

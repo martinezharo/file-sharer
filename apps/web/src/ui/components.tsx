@@ -1,4 +1,5 @@
 import type { ComponentChildren, JSX } from "preact";
+import { useEffect, useId, useRef } from "preact/hooks";
 import { AlertCircle, CheckCircle2, Shield, X } from "lucide-preact";
 import { toasts } from "../state/ui";
 
@@ -174,17 +175,41 @@ interface ModalProps {
 }
 
 export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close on Escape and move focus into the dialog when it opens (basic a11y).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      previouslyFocused?.focus?.();
+    };
+  }, [onClose]);
+
   return (
     <div
       class="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,#0a0a0c_55%,transparent)] p-4 backdrop-blur-[4px]"
       onClick={onClose}
     >
       <div
-        class="animate-modal-in w-full max-w-[440px] overflow-hidden rounded-xl3 bg-elevated shadow-float"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        class="animate-modal-in w-full max-w-[440px] overflow-hidden rounded-xl3 bg-elevated shadow-float outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <header class="flex items-center justify-between py-4 pl-[22px] pr-[18px]">
-          <h2 class="text-[17px] font-semibold">{title}</h2>
+          <h2 id={titleId} class="text-[17px] font-semibold">
+            {title}
+          </h2>
           <IconButton label="Close" onClick={onClose}>
             <X />
           </IconButton>

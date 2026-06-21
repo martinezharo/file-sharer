@@ -11,10 +11,9 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { saveFile, sendFileMessages, sendTextMessage } from "../actions";
-import { api } from "../api/client";
+import { listDevicesDecrypted, saveFile, sendFileMessages, sendTextMessage } from "../actions";
 import { messages } from "../state/messages";
-import { authHeaders, session } from "../state/session";
+import { session } from "../state/session";
 import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
 import type { LocalMessage } from "../types";
@@ -66,11 +65,10 @@ export function Chat(): JSX.Element {
     if (!currentSession) return;
 
     let cancelled = false;
-    api
-      .listDevices(authHeaders())
-      .then((result) => {
+    listDevicesDecrypted()
+      .then((devices) => {
         if (!cancelled) {
-          setDeviceNames(new Map(result.devices.map((device) => [device.id, device.name])));
+          setDeviceNames(new Map(devices.map((device) => [device.id, device.name])));
         }
       })
       .catch(() => {
@@ -303,6 +301,7 @@ function Composer(): JSX.Element {
           }}
         />
         <button
+          type="button"
           aria-label="Send message"
           title="Send"
           onClick={submit}

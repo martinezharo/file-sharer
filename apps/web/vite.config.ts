@@ -9,6 +9,9 @@ export default defineConfig({
     preact(),
     VitePWA({
       registerType: "autoUpdate",
+      // Register via an external script (not inline) so a strict CSP can keep
+      // `script-src 'self'` without allowing inline scripts.
+      injectRegister: "script-defer",
       includeAssets: [
         "icon.svg",
         "icon-maskable.svg",
@@ -61,6 +64,11 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
+  build: {
+    // Avoid Vite's inline module-preload polyfill so the built index.html has no
+    // inline <script> (keeps the strict `script-src 'self'` CSP working).
+    modulePreload: { polyfill: false },
+  },
   server: {
     port: 5173,
     proxy: {

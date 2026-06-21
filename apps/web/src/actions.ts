@@ -2,8 +2,8 @@ import { MAX_FILE_SIZE, type PairingQrPayload } from "@file-sharer/shared";
 import { signal } from "@preact/signals";
 import { api } from "./api/client";
 import {
-  encryptFile,
-  encryptJson,
+  decryptName,
+  encryptName,
   exportGroupKey,
   exportPublicKey,
   generateDeviceKeyPair,
@@ -44,11 +44,14 @@ export async function createSpace(deviceName: string): Promise<void> {
   const groupId = randomId();
   const deviceId = randomId();
   const publicKey = await exportPublicKey(keyPair.publicKey);
+  const name = await encryptName(newGroupKey, deviceName, deviceId);
 
   await api.createGroup({
     groupId,
     authTokenHash: await sha256Hex(token),
-    device: { id: deviceId, name: deviceName, publicKey },
+    device: { id: deviceId, publicKey },
+    encryptedName: name.ciphertext,
+    nameIv: name.iv,
   });
 
   const newSession: Session = { groupId, deviceId, deviceName, groupAuthToken: token };
@@ -68,7 +71,7 @@ export async function startLinking(deviceName: string): Promise<void> {
   const publicKey = await exportPublicKey(keyPair.publicKey);
 
   const payload: PairingQrPayload = { v: 1, pairingId, deviceId, deviceName, publicKey };
-  await api.pairingRequest(pairingId, { device: { id: deviceId, name: deviceName, publicKey } });
+  await api.pairingRequest(pairingId, { device: { id: deviceId, publicKey } });
 
   const pending: PendingPairing = { keyPair, payload };
   await metaSet("pendingPairing", pending);
@@ -121,6 +124,7 @@ async function pollLink(
       keyPair.privateKey,
       result.ephemeralPublicKey,
       result.wrappedPackage,
+      pairingId,
     );
     const recoveredGroupKey = await importGroupKey(recovered.groupKey);
     const newSession: Session = {
@@ -164,21 +168,56 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
   } catch {
     throw new Error("That does not look like a valid device code");
   }
-  if (payload.v !== 1 || !payload.pairingId || !payload.publicKey) {
+  if (payload.v !== 1 || !payload.pairingId || !payload.publicKey || !payload.deviceId) {
     throw new Error("Unsupported or malformed device code");
   }
 
   const recipientPublicKey = await importPublicKey(payload.publicKey);
-  const wrapped = await wrapPairingPackage(recipientPublicKey, {
-    groupKey: await exportGroupKey(currentGroupKey),
-    groupAuthToken: currentSession.groupAuthToken,
-    groupId: currentSession.groupId,
-  });
+  const wrapped = await wrapPairingPackage(
+    recipientPublicKey,
+    {
+      groupKey: await exportGroupKey(currentGroupKey),
+      groupAuthToken: currentSession.groupAuthToken,
+      groupId: currentSession.groupId,
+    },
+    payload.pairingId,
+  );
+  // The joining device can't encrypt its own name (it has no GroupKey yet), so
+  // this device encrypts the scanned (out-of-band) name on its behalf.
+  const name = await encryptName(currentGroupKey, payload.deviceName, payload.deviceId);
 
   await api.pairingComplete(
     payload.pairingId,
-    { wrappedPackage: wrapped.wrappedPackage, ephemeralPublicKey: wrapped.ephemeralPublicKey },
+    {
+      wrappedPackage: wrapped.wrappedPackage,
+      ephemeralPublicKey: wrapped.ephemeralPublicKey,
+      encryptedName: name.ciphertext,
+      nameIv: name.iv,
+    },
     authHeaders(),
+  );
+}
+
+/** Fetch the group's devices and decrypt their names for display. */
+export interface DeviceView {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+export async function listDevicesDecrypted(): Promise<DeviceView[]> {
+  const key = groupKey.value;
+  if (!key) throw new Error("Not signed in");
+  const { devices } = await api.listDevices(authHeaders());
+  return Promise.all(
+    devices.map(async (d) => ({
+      id: d.id,
+      createdAt: d.createdAt,
+      name:
+        d.encryptedName && d.nameIv
+          ? await decryptName(key, d.encryptedName, d.nameIv, d.id).catch(() => d.id)
+          : d.id,
+    })),
   );
 }
 
@@ -238,37 +277,12 @@ export async function sendFileMessage(file: File): Promise<void> {
     status: "queued",
     fileState: "downloaded", // the sender already holds the file
   };
+
+  // Cache the original locally, then let the sync engine encrypt + upload + send
+  // (and retry on failure) exactly like a text message.
+  await putFile(r2Key, file);
   await upsertMessage(message);
-
-  try {
-    const buffer = await file.arrayBuffer();
-    const encrypted = await encryptFile(currentGroupKey, buffer);
-    fileRef.iv = encrypted.iv;
-    // Cache the original locally so the sender can re-open it instantly.
-    await putFile(r2Key, file);
-
-    const auth = authHeaders();
-    await api.uploadFile(r2Key, encrypted.ciphertext, auth);
-    const meta = await encryptJson(currentGroupKey, {
-      name: fileRef.name,
-      size: fileRef.size,
-      mime: fileRef.mime,
-    });
-    await api.sendMessage(
-      {
-        id: message.id,
-        fileR2Key: r2Key,
-        fileIv: encrypted.iv,
-        fileMeta: meta.ciphertext,
-        fileMetaIv: meta.iv,
-      },
-      auth,
-    );
-    await upsertMessage({ ...message, file: fileRef, status: "sent" });
-  } catch (error) {
-    await upsertMessage({ ...message, status: "failed" });
-    showToast(`Could not send file: ${errorMessage(error)}`, "error");
-  }
+  void syncNow();
 }
 
 export async function sendFileMessages(files: readonly File[]): Promise<void> {

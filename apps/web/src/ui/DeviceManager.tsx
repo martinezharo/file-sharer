@@ -1,25 +1,23 @@
-import type { DeviceInfo } from "@file-sharer/shared";
 import { ClipboardPaste, Plus, ScanLine } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addDeviceFromQr, revokeDevice } from "../actions";
-import { api } from "../api/client";
+import { addDeviceFromQr, type DeviceView, listDevicesDecrypted, revokeDevice } from "../actions";
 import { startScanner, type Scanner } from "../qr/scan";
-import { authHeaders, session } from "../state/session";
+import { session } from "../state/session";
 import { showToast } from "../state/ui";
 import { Button, cx, initials, Modal, Spinner } from "./components";
 
 export function DeviceManager(): JSX.Element {
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
+  const [devices, setDevices] = useState<DeviceView[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [pendingRevoke, setPendingRevoke] = useState<DeviceView | null>(null);
   const myId = session.value?.deviceId;
 
   async function refresh(): Promise<void> {
     setLoading(true);
     try {
-      const result = await api.listDevices(authHeaders());
-      setDevices(result.devices);
+      setDevices(await listDevicesDecrypted());
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not load devices", "error");
     } finally {
@@ -31,8 +29,8 @@ export function DeviceManager(): JSX.Element {
     void refresh();
   }, []);
 
-  async function onRevoke(device: DeviceInfo): Promise<void> {
-    if (!confirm(`Revoke "${device.name}"? It will lose access to this space.`)) return;
+  async function confirmRevoke(device: DeviceView): Promise<void> {
+    setPendingRevoke(null);
     try {
       await revokeDevice(device.id);
       showToast(`Revoked ${device.name}`);
@@ -87,7 +85,7 @@ export function DeviceManager(): JSX.Element {
                   </div>
                 </div>
                 {device.id !== myId && (
-                  <Button variant="danger" size="sm" onClick={() => void onRevoke(device)}>
+                  <Button variant="danger" size="sm" onClick={() => setPendingRevoke(device)}>
                     Revoke
                   </Button>
                 )}
@@ -106,6 +104,27 @@ export function DeviceManager(): JSX.Element {
             void refresh();
           }}
         />
+      )}
+
+      {pendingRevoke && (
+        <Modal title="Revoke this device?" onClose={() => setPendingRevoke(null)}>
+          <p class="text-[13.5px] leading-5 text-subtle">
+            <strong class="text-ink">{pendingRevoke.name}</strong> will lose access to this space. It
+            won't be able to send or receive messages until you link it again.
+          </p>
+          <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+            <Button class="sm:w-auto" variant="secondary" onClick={() => setPendingRevoke(null)}>
+              Cancel
+            </Button>
+            <Button
+              class="sm:w-auto"
+              variant="danger"
+              onClick={() => void confirmRevoke(pendingRevoke)}
+            >
+              Revoke device
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -226,6 +245,7 @@ function SegItem({
 }): JSX.Element {
   return (
     <button
+      type="button"
       onClick={onClick}
       class={cx(
         "inline-flex flex-1 items-center justify-center gap-[7px] rounded-[10px] py-2 text-[13.5px] font-medium transition [&_svg]:size-4",
