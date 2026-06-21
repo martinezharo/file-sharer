@@ -24,8 +24,8 @@ export function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
+export function initials(name: string | undefined | null): string {
+  const parts = (name ?? "").trim().split(/\s+/);
   const first = parts[0]?.[0] ?? "?";
   const second = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
   return (first + second).toUpperCase();

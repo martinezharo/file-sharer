@@ -9,9 +9,9 @@ export default defineConfig({
     preact(),
     VitePWA({
       registerType: "autoUpdate",
-      // Register via an external script (not inline) so a strict CSP can keep
-      // `script-src 'self'` without allowing inline scripts.
-      injectRegister: "script-defer",
+      // We register the service worker ourselves in main.tsx (bundled, so the
+      // strict `script-src 'self'` CSP holds) to add periodic/focus update checks.
+      injectRegister: false,
       includeAssets: [
         "icon.svg",
         "icon-maskable.svg",
@@ -60,6 +60,11 @@ export default defineConfig({
         // Never let the service worker serve the API from cache.
         navigateFallbackDenylist: [/^\/api\//],
         globPatterns: ["**/*.{js,css,html,svg,woff2}"],
+        // Take control immediately and drop stale precaches so a new deploy is
+        // fully live after one auto-reload (no manual cache clearing).
+        clientsClaim: true,
+        skipWaiting: true,
+        cleanupOutdatedCaches: true,
       },
       devOptions: { enabled: false },
     }),

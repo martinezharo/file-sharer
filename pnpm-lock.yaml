@@ -75,6 +75,9 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@26.0.0)(lightningcss@1.32.0)(terser@5.48.0)
+      workbox-window:
+        specifier: ^7.4.1
+        version: 7.4.1
 
   apps/worker:
     dependencies:
