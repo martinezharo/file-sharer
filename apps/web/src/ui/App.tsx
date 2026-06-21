@@ -83,6 +83,7 @@ export function App(): JSX.Element {
               {NAV.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
+                  type="button"
                   aria-label={label}
                   onClick={() => (view.value = id)}
                   class={cx(
@@ -157,6 +158,7 @@ function NavItem({
 }): JSX.Element {
   return (
     <button
+      type="button"
       onClick={onClick}
       class={cx(
         "flex w-full items-center gap-[11px] rounded-[10px] px-[11px] py-[9px] text-left text-[14px] font-medium transition [&_svg]:size-[18px] [&_svg]:flex-none [&_svg]:opacity-85",

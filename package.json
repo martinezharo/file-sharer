@@ -16,13 +16,17 @@
     "db:migrate:local": "pnpm --filter @file-sharer/worker db:migrate:local",
     "db:migrate:remote": "pnpm --filter @file-sharer/worker db:migrate:remote",
     "test": "pnpm -r --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "concurrently": "^9.1.0",
     "typescript": "^5.7.2"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"]
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild", "workerd", "sharp"]
   }
 }

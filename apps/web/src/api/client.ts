@@ -82,7 +82,6 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
       lastError = err;
       if (attempt < maxAttempts - 1) {
         await delay(250 * 2 ** attempt);
-        continue;
       }
     }
   }

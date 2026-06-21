@@ -299,6 +299,7 @@ function SiteHeader({ scrolled, onCreate }: { scrolled: boolean; onCreate: () =>
           </a>
         </nav>
         <button
+          type="button"
           onClick={onCreate}
           class={cx(
             "inline-flex h-10 items-center gap-2 rounded-card bg-accent px-4 text-[14px] font-semibold text-on-accent shadow-accent transition-[opacity,transform] duration-300 hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[17px]",
@@ -341,6 +342,7 @@ function Hero({
           </p>
           <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center">
             <button
+              type="button"
               onClick={onCreate}
               class="inline-flex h-12 items-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]"
             >
@@ -488,6 +490,7 @@ function Security({ onCreate }: { onCreate: () => void }): JSX.Element {
               hashes ever cross the wire.
             </p>
             <button
+              type="button"
               onClick={onCreate}
               class="mt-6 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent transition-[gap] hover:gap-3 [&_svg]:size-[17px]"
             >

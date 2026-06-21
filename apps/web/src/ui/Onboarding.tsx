@@ -139,6 +139,7 @@ function Choice({
 }): JSX.Element {
   return (
     <button
+      type="button"
       onClick={onClick}
       class="group flex w-full items-center gap-3.5 rounded-card bg-surface-3 px-4 py-[15px] text-left transition hover:shadow-pop hover:ring-1 hover:ring-inset hover:ring-accent/40 active:translate-y-px"
     >
