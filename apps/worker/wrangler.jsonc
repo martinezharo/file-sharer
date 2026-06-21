@@ -29,6 +29,31 @@
     { "binding": "FILES", "bucket_name": "file-sharer-files" }
   ],
 
+  // Abuse protection. The `ratelimit` binding is enforced on the Cloudflare edge
+  // (per-isolate best-effort) and is a no-op in plain local dev.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "RL_PUBLIC",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 30, "period": 60 }
+      },
+      {
+        "name": "RL_WRITE",
+        "type": "ratelimit",
+        "namespace_id": "1002",
+        "simple": { "limit": 120, "period": 60 }
+      },
+      {
+        "name": "RL_UPLOAD",
+        "type": "ratelimit",
+        "namespace_id": "1003",
+        "simple": { "limit": 20, "period": 60 }
+      }
+    ]
+  },
+
   // Hourly cleanup: expired pairing slots + messages/files older than 24h.
   "triggers": {
     "crons": ["0 * * * *"]

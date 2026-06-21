@@ -6,14 +6,16 @@ import type {
   SendMessageResponse,
 } from "@file-sharer/shared";
 import { authenticate } from "../auth";
-import { activeDeviceIds, deleteMessageById } from "../db";
+import { activeDeviceIds, deleteMessageById, fileStorageKey } from "../db";
 import { ApiError, json } from "../errors";
-import { optionalString, readJson, requireId, requireString } from "../http";
+import { optionalString, readJson, requireId } from "../http";
 import type { RouteContext } from "../router";
+import { rateLimit } from "../security";
 
 /** Create message metadata + one pending delivery row per other active device. */
 export async function sendMessage(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
+  await rateLimit(c.env, "RL_WRITE", auth.deviceId);
   const body = await readJson<SendMessageRequest>(c.request);
 
   const id = requireId(body.id, "id");
@@ -40,13 +42,13 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   // No recipients: nothing to deliver. Drop any uploaded file and skip storage
   // so the server keeps nothing around.
   if (recipients.length === 0) {
-    if (fileR2Key) await c.env.FILES.delete(fileR2Key);
+    if (fileR2Key) await c.env.FILES.delete(fileStorageKey(auth.groupId, fileR2Key));
     return json({ ok: true } satisfies SendMessageResponse);
   }
 
-  // If a file is referenced it must already be uploaded.
+  // If a file is referenced it must already be uploaded (under this group).
   if (fileR2Key) {
-    const head = await c.env.FILES.head(fileR2Key);
+    const head = await c.env.FILES.head(fileStorageKey(auth.groupId, fileR2Key));
     if (!head) {
       throw new ApiError("bad_request", "Referenced file has not been uploaded");
     }
@@ -99,7 +101,8 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
   const rows = await c.env.DB.prepare(
     `SELECT m.id AS id,
             m.sender_device_id AS senderDeviceId,
-            COALESCE(d.name, m.sender_device_id) AS senderDeviceName,
+            d.name_enc AS senderNameEnc,
+            d.name_iv AS senderNameIv,
             m.encrypted_payload AS encryptedPayload,
             m.iv AS iv,
             m.file_r2_key AS fileR2Key,

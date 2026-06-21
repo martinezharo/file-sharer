@@ -1,5 +1,14 @@
 import type { Env } from "./env";
 
+/**
+ * R2 object key, namespaced by group. The client only ever knows the bare
+ * `key`; the server derives the storage key from the authenticated group, so a
+ * device in group A can never reach group B's blobs even if it learns the key.
+ */
+export function fileStorageKey(groupId: string, key: string): string {
+  return `${groupId}/${key}`;
+}
+
 /** Active (non-revoked) device ids for a group. */
 export async function activeDeviceIds(env: Env, groupId: string): Promise<string[]> {
   const rows = await env.DB.prepare(
@@ -13,11 +22,13 @@ export async function activeDeviceIds(env: Env, groupId: string): Promise<string
 /** Delete a set of messages (and their R2 files + delivery rows) by id. */
 async function deleteMessages(
   env: Env,
-  messages: { id: string; fileKey: string | null }[],
+  messages: { id: string; groupId: string; fileKey: string | null }[],
 ): Promise<void> {
   if (messages.length === 0) return;
 
-  const fileKeys = messages.map((m) => m.fileKey).filter((k): k is string => Boolean(k));
+  const fileKeys = messages
+    .filter((m) => m.fileKey)
+    .map((m) => fileStorageKey(m.groupId, m.fileKey as string));
   if (fileKeys.length > 0) {
     // R2 supports deleting up to 1000 keys in one call.
     await env.FILES.delete(fileKeys);
@@ -37,7 +48,7 @@ async function deleteMessages(
  */
 export async function purgeDeliveredMessages(env: Env, groupId: string): Promise<void> {
   const rows = await env.DB.prepare(
-    `SELECT m.id AS id, m.file_r2_key AS fileKey
+    `SELECT m.id AS id, m.group_id AS groupId, m.file_r2_key AS fileKey
        FROM messages m
       WHERE m.group_id = ?
         AND NOT EXISTS (
@@ -46,16 +57,18 @@ export async function purgeDeliveredMessages(env: Env, groupId: string): Promise
         )`,
   )
     .bind(groupId)
-    .all<{ id: string; fileKey: string | null }>();
+    .all<{ id: string; groupId: string; fileKey: string | null }>();
 
   await deleteMessages(env, rows.results);
 }
 
 /** Delete one message (and its R2 object) by id. Returns true if it existed. */
 export async function deleteMessageById(env: Env, id: string): Promise<boolean> {
-  const row = await env.DB.prepare("SELECT id, file_r2_key AS fileKey FROM messages WHERE id = ?")
+  const row = await env.DB.prepare(
+    "SELECT id, group_id AS groupId, file_r2_key AS fileKey FROM messages WHERE id = ?",
+  )
     .bind(id)
-    .first<{ id: string; fileKey: string | null }>();
+    .first<{ id: string; groupId: string; fileKey: string | null }>();
   if (!row) return false;
   await deleteMessages(env, [row]);
   return true;
@@ -64,9 +77,9 @@ export async function deleteMessageById(env: Env, id: string): Promise<boolean> 
 /** Delete messages (and files) older than `olderThan` epoch ms across all groups. */
 export async function purgeExpiredMessages(env: Env, olderThan: number): Promise<void> {
   const rows = await env.DB.prepare(
-    "SELECT id, file_r2_key AS fileKey FROM messages WHERE created_at < ?",
+    "SELECT id, group_id AS groupId, file_r2_key AS fileKey FROM messages WHERE created_at < ?",
   )
     .bind(olderThan)
-    .all<{ id: string; fileKey: string | null }>();
+    .all<{ id: string; groupId: string; fileKey: string | null }>();
   await deleteMessages(env, rows.results);
 }

@@ -9,7 +9,7 @@ import type { RouteContext } from "../router";
 export async function listDevices(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   const rows = await c.env.DB.prepare(
-    "SELECT id, name, created_at AS createdAt FROM devices WHERE group_id = ? AND revoked_at IS NULL ORDER BY created_at ASC",
+    "SELECT id, name_enc AS encryptedName, name_iv AS nameIv, created_at AS createdAt FROM devices WHERE group_id = ? AND revoked_at IS NULL ORDER BY created_at ASC",
   )
     .bind(auth.groupId)
     .all<DeviceInfo>();

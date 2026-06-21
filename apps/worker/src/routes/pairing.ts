@@ -10,6 +10,7 @@ import { authenticate } from "../auth";
 import { ApiError, json } from "../errors";
 import { readJson, requireId, requireString } from "../http";
 import type { RouteContext } from "../router";
+import { clientIp, rateLimit } from "../security";
 
 /**
  * Step 1 (joining device, semi-open): reserve a pairing slot and publish the
@@ -17,6 +18,7 @@ import type { RouteContext } from "../router";
  * `pairingId` and reaped by cron after PAIRING_TTL.
  */
 export async function requestPairing(c: RouteContext): Promise<Response> {
+  await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
   const pairingId = requireId(c.params.pairingId, "pairingId");
   const body = await readJson<PairingRequestBody>(c.request);
   const device = body.device;
@@ -25,7 +27,6 @@ export async function requestPairing(c: RouteContext): Promise<Response> {
   }
   const descriptor: DeviceDescriptor = {
     id: requireId(device.id, "device.id"),
-    name: requireString(device.name, "device.name", 128),
     publicKey: requireString(device.publicKey, "device.publicKey", 2048),
   };
 
@@ -56,6 +57,8 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const body = await readJson<PairingCompleteBody>(c.request);
   const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 8192);
   const ephemeralPublicKey = requireString(body.ephemeralPublicKey, "ephemeralPublicKey", 2048);
+  const nameEnc = requireString(body.encryptedName, "encryptedName", 1024);
+  const nameIv = requireString(body.nameIv, "nameIv", 128);
 
   const slot = await c.env.DB.prepare(
     "SELECT new_device AS newDevice, wrapped_package AS wrapped FROM pairing WHERE pairing_id = ?",
@@ -72,13 +75,15 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const device = JSON.parse(slot.newDevice) as DeviceDescriptor;
   const now = Date.now();
 
-  // Register the joining device (idempotent) and store the wrapped package.
+  // Register the joining device (idempotent) and store the wrapped package. The
+  // name is encrypted client-side by this (existing) device, so the server only
+  // ever stores ciphertext for it.
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO devices (id, group_id, name, public_key, created_at)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET revoked_at = NULL`,
-    ).bind(device.id, auth.groupId, device.name, device.publicKey, now),
+      `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET revoked_at = NULL, name_enc = excluded.name_enc, name_iv = excluded.name_iv`,
+    ).bind(device.id, auth.groupId, nameEnc, nameIv, device.publicKey, now),
     c.env.DB.prepare(
       `UPDATE pairing
           SET group_id = ?, wrapped_package = ?, ephemeral_public_key = ?

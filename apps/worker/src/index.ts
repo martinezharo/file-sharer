@@ -7,6 +7,7 @@ import { downloadFile, uploadFile } from "./routes/files";
 import { createGroup } from "./routes/groups";
 import { ackMessage, pendingMessages, sendMessage } from "./routes/messages";
 import { completePairing, pollPairing, requestPairing } from "./routes/pairing";
+import { withSecurityHeaders } from "./security";
 
 const router = new Router();
 
@@ -34,16 +35,16 @@ export default {
     if (url.pathname.startsWith("/api/")) {
       try {
         const response = await router.handle(request, env, ctx);
-        if (response) return response;
+        if (response) return withSecurityHeaders(response);
         throw new ApiError("not_found", "No such endpoint");
       } catch (err) {
-        if (err instanceof ApiError) return err.toResponse();
+        if (err instanceof ApiError) return withSecurityHeaders(err.toResponse());
         console.error("Unhandled error:", err);
-        return new ApiError("internal", "Internal server error").toResponse();
+        return withSecurityHeaders(new ApiError("internal", "Internal server error").toResponse());
       }
     }
 
-    return env.ASSETS.fetch(request);
+    return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
