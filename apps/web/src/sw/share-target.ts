@@ -1,26 +1,20 @@
-// Web Share Target handler.
-//
-// Imported into the generated Workbox service worker (see `workbox.importScripts`
-// in vite.config.ts). When the OS share sheet sends content to this app, it POSTs
-// a `multipart/form-data` body to `/share-target`. The page can't read that body
-// directly, so we intercept it here, stash the shared text + files in the Cache
-// Storage, and redirect into the app, which drains the stash on boot.
-//
-// Keep this in sync with `SHARE_CACHE` / cache keys in src/share/incoming.ts.
+/**
+ * Web Share Target handler (runs inside the service worker, see src/sw.ts).
+ *
+ * When the OS share sheet sends content to this app, it POSTs a
+ * `multipart/form-data` body to `/share-target`. The page can't read that body
+ * directly, so we intercept it here, stash the shared text + files in the
+ * Cache Storage, and redirect into the app, which drains the stash on boot.
+ *
+ * Keep this in sync with `SHARE_CACHE` / cache keys in src/share/incoming.ts.
+ */
 
 const SHARE_CACHE = "share-target-v1";
 
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (event.request.method === "POST" && url.pathname === "/share-target") {
-    event.respondWith(handleShareTarget(event.request));
-  }
-});
-
-async function handleShareTarget(request) {
+export async function handleShareTarget(request: Request): Promise<Response> {
   try {
     const formData = await request.formData();
-    const files = formData.getAll("files").filter((value) => value instanceof File);
+    const files = formData.getAll("files").filter((value): value is File => value instanceof File);
     const cache = await caches.open(SHARE_CACHE);
 
     const meta = {

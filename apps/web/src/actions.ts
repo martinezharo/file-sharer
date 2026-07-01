@@ -20,6 +20,7 @@ import { getFile, metaDelete, metaGet, metaSet, putFile } from "./db/store";
 import { loadMessages, upsertMessage } from "./state/messages";
 import { authHeaders, groupKey, persistSession, resetSession, session } from "./state/session";
 import { showToast, view } from "./state/ui";
+import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
 import { startSync, stopSync, syncNow } from "./sync/sync";
 import type { FileRef, LinkingState, LocalMessage, Session } from "./types";
 
@@ -229,6 +230,16 @@ export async function revokeDevice(deviceId: string): Promise<void> {
 // Messaging
 // ---------------------------------------------------------------------------
 
+/**
+ * Kick the queued send on its way: flush immediately from the page and, where
+ * supported, register a background sync so the service worker finishes the
+ * job even if the app is closed before the upload completes.
+ */
+function scheduleOutboxFlush(): void {
+  void syncNow();
+  void requestBackgroundSync();
+}
+
 export async function sendTextMessage(text: string): Promise<void> {
   const currentSession = session.value;
   if (!currentSession) return;
@@ -246,17 +257,18 @@ export async function sendTextMessage(text: string): Promise<void> {
   };
   await upsertMessage(message);
   // Flush via the sync engine (handles encrypt + send + retry).
-  void syncNow();
+  scheduleOutboxFlush();
 }
 
-export async function sendFileMessage(file: File): Promise<void> {
+/** Queue one file for sending. Returns false if it was rejected (too large). */
+export async function sendFileMessage(file: File): Promise<boolean> {
   const currentSession = session.value;
   const currentGroupKey = groupKey.value;
-  if (!currentSession || !currentGroupKey) return;
+  if (!currentSession || !currentGroupKey) return false;
 
   if (file.size > MAX_FILE_SIZE) {
     showToast(`File is too large (max ${Math.floor(MAX_FILE_SIZE / 1024 / 1024)} MB)`, "error");
-    return;
+    return false;
   }
 
   const r2Key = randomId();
@@ -282,13 +294,38 @@ export async function sendFileMessage(file: File): Promise<void> {
   // (and retry on failure) exactly like a text message.
   await putFile(r2Key, file);
   await upsertMessage(message);
-  void syncNow();
+  scheduleOutboxFlush();
+  return true;
 }
 
+/** Shown at most once per app load — no need to repeat it for every file. */
+let backgroundUploadHintShown = false;
+
 export async function sendFileMessages(files: readonly File[]): Promise<void> {
+  let queued = 0;
   for (const file of files) {
-    await sendFileMessage(file);
+    if (await sendFileMessage(file)) queued++;
   }
+  if (queued === 0) return;
+
+  // Tell the user what will happen to their upload(s) beyond this screen.
+  if (!navigator.onLine) {
+    showToast(
+      backgroundSyncSupported()
+        ? "You're offline — uploads will continue in the background once you reconnect"
+        : "You're offline — uploads will resume when you're back online (keep the app open)",
+    );
+  } else if (backgroundSyncSupported() && !backgroundUploadHintShown) {
+    backgroundUploadHintShown = true;
+    showToast("Uploading — feel free to close the app, it will finish in the background");
+  }
+}
+
+/** Re-queue a failed outgoing message and try again. */
+export async function retryMessage(message: LocalMessage): Promise<void> {
+  if (message.direction !== "out" || message.status !== "failed") return;
+  await upsertMessage({ ...message, status: "queued" });
+  scheduleOutboxFlush();
 }
 
 /** Trigger a browser download of a (already decrypted, locally cached) file. */

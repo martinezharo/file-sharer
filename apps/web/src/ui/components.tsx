@@ -126,10 +126,16 @@ export function Logo({ size = "md" }: { size?: "md" | "lg" }): JSX.Element {
 /* --------------------------------------------------------------------------
    Spinner
    ------------------------------------------------------------------------ */
-export function Spinner({ large = false }: { large?: boolean }): JSX.Element {
+export function Spinner({
+  large = false,
+  class: cls,
+}: {
+  large?: boolean;
+  class?: string;
+}): JSX.Element {
   return (
     <span
-      class={cx("spinner", large && "!size-[26px] !border-[2.5px]")}
+      class={cx("spinner", large && "!size-[26px] !border-[2.5px]", cls)}
       aria-label="loading"
     />
   );

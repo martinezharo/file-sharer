@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The service worker compiles against the WebWorker lib; it cannot share a
+    // program with the DOM-typed app code (`self` is declared incompatibly by
+    // the two libs), hence this separate config. Everything sw.ts imports from
+    // src/ must stay free of DOM-only APIs.
+    "lib": ["ES2022", "WebWorker"],
+    "types": [],
+    "noEmit": true
+  },
+  "include": ["src/sw.ts", "src/sw"]
+}

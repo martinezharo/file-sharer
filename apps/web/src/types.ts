@@ -17,7 +17,7 @@ export interface FileRef {
   mime: string;
 }
 
-export type MessageStatus = "queued" | "sent" | "failed";
+export type MessageStatus = "queued" | "uploading" | "sent" | "failed";
 export type FileState = "remote" | "downloading" | "downloaded" | "error" | "expired";
 
 /** A decrypted message as kept in local history. */

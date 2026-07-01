@@ -16,6 +16,15 @@ interface FileSharerDB extends DBSchema {
 const DB_NAME = "file-sharer";
 const DB_VERSION = 1;
 
+/**
+ * Well-known `meta` keys. Shared between the page (state/session.ts) and the
+ * service worker (sync/outbox.ts), which reads credentials straight from
+ * IndexedDB because it has no access to the page's signals.
+ */
+export const META_SESSION = "session";
+export const META_GROUP_KEY = "groupKey";
+export const META_DEVICE_KEYPAIR = "deviceKeyPair";
+
 let dbPromise: Promise<IDBPDatabase<FileSharerDB>> | null = null;
 
 function db(): Promise<IDBPDatabase<FileSharerDB>> {
