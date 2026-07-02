@@ -13,9 +13,12 @@
 
 Biggest remaining items (need design decisions, don't do blindly):
 
-- **`GroupKey` rotation + per-device tokens → real revocation.** 🔴🏗️ Requires re-pairing
-  devices that are **offline** (a genuine distributed problem); design the re-keying protocol
-  first.
+- **`GroupKey` rotation → real revocation (forward secrecy).** 🔴🏗️ Rotate **only the
+  `GroupKey`**, leaving the group token in place — so no device is 401'd and none has to
+  re-pair. The revoking device wraps the new key per remaining device (ECIES, using their
+  published ECDH pubkey) and deposits the blobs server-side; each device adopts it on its next
+  sync. Offline devices self-heal on reconnect — keep each wrapped blob until acked. Design the
+  re-keying protocol first.
 - **Sender signing** (authenticity). 🟠🏗️ Needs a second signing keypair per device and a
   signed message format.
 - **Real-time delivery (WebSocket/Durable Objects)** replacing the 8 s poll. 🟠🏗️
@@ -25,7 +28,8 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 1. Security
 
-- [ ] 🔴🏗️ **Revocation does NOT rotate the `GroupKey`.** `apps/worker/src/routes/devices.ts` only sets `revoked_at`. A revoked device keeps the `GroupKey` and `groupAuthToken` locally forever and can decrypt any ciphertext it already saw/exfiltrated. Real revocation = generate a new `GroupKey` + new token, re-pair the active devices and rewrite `auth_token_hash`. Biggest current limitation.
+- [x] ~~🔴⚡ **Cross-group revocation bypass in `completePairing`.**~~ The `INSERT … ON CONFLICT(id) DO UPDATE SET revoked_at = NULL` matched on the global device PK without checking the group, so an ex-member (who still holds the group token, which is never rotated) could **un-revoke their own device in another group** by reserving a pairing slot with that device id from a throwaway group. Fixed in `apps/worker/src/routes/pairing.ts`: reject a device id already registered to a different group, plus a `WHERE devices.group_id = excluded.group_id` guard on the upsert (defense-in-depth against TOCTOU).
+- [ ] 🔴🏗️ **Revocation does NOT rotate the `GroupKey`.** `apps/worker/src/routes/devices.ts` only sets `revoked_at`. A revoked device keeps the `GroupKey` locally forever and can decrypt any ciphertext it already saw/exfiltrated — and any *future* ciphertext it captures off the wire. Real revocation = rotate the `GroupKey`: the revoking device generates a new key, wraps it for each remaining device via ECIES (their published ECDH pubkey) and deposits the blobs on the server; each device adopts the new key on its next sync. **No need to rotate the token or re-pair** — keeping the shared token means no device gets 401'd, and offline devices self-heal on reconnect (keep each wrapped blob until acked). Biggest current limitation.
 - [ ] 🟠🛠️ **Single shared group token (not per-device).** All devices share one bearer. If it leaks from any device → full access. Also `X-Device-Id` is a self-asserted string: with the shared token, a device can impersonate another's `deviceId` (read its pending messages, ack, send as it). Redesign to a **per-device token** (server maps token→device→group); this also makes revocation actually cut off the affected device.
 - [ ] 🟠🏗️ **No sender authenticity.** `senderDeviceId`/`senderName` are provided by the server, not the sender. A malicious server can forge who sent what. Add a **signing** keypair per device (ECDSA/Ed25519) and sign messages; the receiver verifies with the public key published at pairing time.
 - [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages. Consider per-device signed sequence numbers. At minimum, document it in the threat model.
@@ -84,7 +88,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 7. Features (roadmap "next level")
 
-- [ ] 🔴🏗️ `GroupKey` rotation + real revocation (depends on per-device tokens).
+- [ ] 🔴🏗️ `GroupKey` rotation → real revocation (rotate the key only, token intact; async re-key via per-device wrapped blobs, no re-pairing). See §1.
 - [ ] 🟠🏗️ Real-time delivery (WebSocket/Durable Objects) replacing polling.
 - [ ] 🟠🏗️ **Web Push**: new-message notifications with the app closed (fits the async model perfectly).
 - [ ] 🟠🛠️ **At-rest lock** (PIN/passphrase/WebAuthn) wrapping the `GroupKey`.
