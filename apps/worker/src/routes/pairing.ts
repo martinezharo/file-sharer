@@ -75,14 +75,32 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const device = JSON.parse(slot.newDevice) as DeviceDescriptor;
   const now = Date.now();
 
+  // The device id is chosen by the (unauthenticated) joining device in step 1, so
+  // it could collide with a device already registered to a *different* group. If we
+  // let the upsert below run for such a row it would un-revoke and overwrite a
+  // foreign device — a revocation bypass. Reject the collision instead.
+  const existingDevice = await c.env.DB.prepare("SELECT group_id AS groupId FROM devices WHERE id = ?")
+    .bind(device.id)
+    .first<{ groupId: string }>();
+  if (existingDevice && existingDevice.groupId !== auth.groupId) {
+    throw new ApiError("conflict", "Device id already registered to another group");
+  }
+
   // Register the joining device (idempotent) and store the wrapped package. The
   // name is encrypted client-side by this (existing) device, so the server only
-  // ever stores ciphertext for it.
+  // ever stores ciphertext for it. The `WHERE devices.group_id = excluded.group_id`
+  // guard is defense-in-depth: it makes the upsert a no-op for any cross-group row
+  // that slips past the check above rather than reactivating it.
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET revoked_at = NULL, name_enc = excluded.name_enc, name_iv = excluded.name_iv`,
+       ON CONFLICT(id) DO UPDATE SET
+         revoked_at = NULL,
+         name_enc = excluded.name_enc,
+         name_iv = excluded.name_iv,
+         public_key = excluded.public_key
+       WHERE devices.group_id = excluded.group_id`,
     ).bind(device.id, auth.groupId, nameEnc, nameIv, device.publicKey, now),
     c.env.DB.prepare(
       `UPDATE pairing
