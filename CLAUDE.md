@@ -5,8 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A tiny end-to-end-encrypted PWA to share text and files (≤ 50 MB) between a user's own
-devices. The server (a single Cloudflare Worker) only ever sees ciphertext, public keys and
-hashes — plaintext and the symmetric `GroupKey` never leave the client devices.
+devices **asynchronously**: pair each device once via QR (ECIES over an out-of-band public
+key), and afterwards the devices never need to be online at the same time — messages and
+files sit encrypted in the server until the recipient device next syncs. The server (a
+single Cloudflare Worker) only ever sees ciphertext, public keys and hashes — plaintext
+and the symmetric `GroupKey` never leave the client devices.
 
 ## Commands
 
