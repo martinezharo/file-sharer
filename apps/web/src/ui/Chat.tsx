@@ -4,7 +4,14 @@ import {
   CheckCheck,
   Clock,
   Download,
+  File as FileIcon,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
   FileText,
+  FileVideo,
   Lock,
   Plus,
   RotateCw,
@@ -18,11 +25,12 @@ import {
   sendFileMessages,
   sendTextMessage,
 } from "../actions";
+import { getFile } from "../db/store";
 import { messages } from "../state/messages";
 import { session } from "../state/session";
 import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
-import type { LocalMessage } from "../types";
+import type { FileRef, LocalMessage } from "../types";
 import { cx, formatBytes, formatTime, IconButton, Spinner } from "./components";
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
@@ -206,10 +214,55 @@ function uploadStateLabel(message: LocalMessage): string | null {
   }
 }
 
+const ARCHIVE_MIME_RE = /zip|rar|7z|tar|gzip|compressed/;
+const CODE_MIME_RE = /json|javascript|typescript|xml|html|css/;
+const SPREADSHEET_MIME_RE = /spreadsheet|csv|excel|ms-excel/;
+const DOCUMENT_MIME_RE = /pdf|msword|wordprocessing|rtf/;
+
+/** Pick an icon that matches the attachment's MIME type. */
+function FileTypeIcon({ mime }: { mime: string }): JSX.Element {
+  if (mime.startsWith("image/")) return <FileImage />;
+  if (mime.startsWith("video/")) return <FileVideo />;
+  if (mime.startsWith("audio/")) return <FileAudio />;
+  if (ARCHIVE_MIME_RE.test(mime)) return <FileArchive />;
+  if (SPREADSHEET_MIME_RE.test(mime)) return <FileSpreadsheet />;
+  if (CODE_MIME_RE.test(mime)) return <FileCode />;
+  if (mime.startsWith("text/") || DOCUMENT_MIME_RE.test(mime)) return <FileText />;
+  return <FileIcon />;
+}
+
+/**
+ * Object URL for an image attachment's locally cached blob, or null while the
+ * file is not an image / not downloaded yet. Revoked on unmount.
+ */
+function useImageThumbnail(file: FileRef, available: boolean): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  const isImage = file.mime.startsWith("image/");
+
+  useEffect(() => {
+    if (!isImage || !available) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    void getFile(file.r2Key).then((blob) => {
+      if (!blob || cancelled) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setUrl(null);
+    };
+  }, [file.r2Key, isImage, available]);
+
+  return url;
+}
+
 function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolean }): JSX.Element {
   const file = message.file!;
   const state = message.fileState;
   const uploadLabel = uploadStateLabel(message);
+  const thumbnailUrl = useImageThumbnail(file, state === "downloaded");
 
   return (
     <div
@@ -218,14 +271,23 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         mine ? "bg-black/15" : "bg-surface-3",
       )}
     >
-      <div
-        class={cx(
-          "grid size-10 flex-none place-items-center rounded-[10px] text-accent [&_svg]:size-5",
-          mine ? "bg-white/90" : "bg-surface",
-        )}
-      >
-        <FileText />
-      </div>
+      {thumbnailUrl ? (
+        <img
+          src={thumbnailUrl}
+          alt=""
+          class="size-10 flex-none rounded-[10px] object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div
+          class={cx(
+            "grid size-10 flex-none place-items-center rounded-[10px] text-accent [&_svg]:size-5",
+            mine ? "bg-white/90" : "bg-surface",
+          )}
+        >
+          <FileTypeIcon mime={file.mime} />
+        </div>
+      )}
       <div class="min-w-0 flex-1">
         <div class="truncate text-[13.5px] font-medium" title={file.name}>
           {file.name}
