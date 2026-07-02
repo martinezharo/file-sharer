@@ -265,13 +265,23 @@ export interface EncryptedFile {
   iv: string;
 }
 
-/** One-shot AES-GCM over a whole file buffer (fine for files up to ~50 MB). */
+/**
+ * One-shot AES-GCM over a whole file buffer (fine for files up to ~50 MB).
+ *
+ * `ivB64` lets a retried upload reuse the IV persisted by an earlier attempt:
+ * same key + IV + plaintext + AAD produce byte-identical ciphertext, so a
+ * re-upload can never diverge from the IV a previous attempt already
+ * registered with the server. Only ever pass an IV that was generated for
+ * this exact plaintext/context — reusing it across different plaintexts
+ * breaks AES-GCM.
+ */
 export async function encryptFile(
   groupKey: CryptoKey,
   data: ArrayBuffer,
   context?: string,
+  ivB64?: string,
 ): Promise<EncryptedFile> {
-  const iv = randomIv();
+  const iv = ivB64 ? new Uint8Array(base64UrlToBuf(ivB64)) : randomIv();
   const ciphertext = await crypto.subtle.encrypt(
     { name: AES, iv, additionalData: aad(context) },
     groupKey,

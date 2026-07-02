@@ -95,7 +95,12 @@ message/file > 24 h old. R2 also has a 24 h bucket lifecycle rule configured out
   logout). `sync/sync.ts` is the engine — a single polling loop (`POLL_INTERVAL_MS`, plus focus/
   online events) that flushes the outbox, downloads + decrypts incoming files, and only **acks a
   file after a successful download+decrypt** (so the server never deletes an unreceived file).
-  Outbound sends are optimistic: queue a `LocalMessage`, then `void syncNow()`.
+  Outbound sends are optimistic: queue a `LocalMessage`, then `void syncNow()` +
+  `requestBackgroundSync()`. The outbox flush itself lives in `sync/outbox.ts` and is shared with
+  the custom service worker (`src/sw.ts`, vite-plugin-pwa `injectManifest`): on Chromium the
+  Background Sync API wakes the SW to finish queued uploads even after the app is closed. Anything
+  `outbox.ts`/`sw.ts` import must stay free of DOM APIs and signals (it is typechecked separately
+  via `tsconfig.sw.json` with the WebWorker lib) and read session/keys/queue from IndexedDB only.
 - **Web state** lives in `src/state/*` as `@preact/signals`; `src/db/store.ts` wraps IndexedDB
   (meta KV for session/keys, blob store for files). `CryptoKey`/`CryptoKeyPair` objects are
   persisted directly into IndexedDB (structured clone) — do not export keys to do this.

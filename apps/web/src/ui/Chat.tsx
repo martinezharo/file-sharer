@@ -11,7 +11,13 @@ import {
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { listDevicesDecrypted, saveFile, sendFileMessages, sendTextMessage } from "../actions";
+import {
+  listDevicesDecrypted,
+  retryMessage,
+  saveFile,
+  sendFileMessages,
+  sendTextMessage,
+} from "../actions";
 import { messages } from "../state/messages";
 import { session } from "../state/session";
 import { composerDraft } from "../state/ui";
@@ -162,10 +168,22 @@ function MessageBubble({
           )}
         >
           <span>{formatTime(message.createdAt)}</span>
-          {mine && message.status === "queued" && <Clock />}
+          {mine && message.status === "queued" && <Clock aria-label="Waiting to send" />}
+          {mine && message.status === "uploading" && (
+            <Spinner class="!size-[12px] !border-[1.5px] !border-white/40 !border-t-white" />
+          )}
           {mine && message.status === "sent" && <CheckCheck />}
           {mine && message.status === "failed" && (
-            <AlertCircle class="!opacity-100" aria-label="Failed to send" />
+            <>
+              <AlertCircle class="!opacity-100" aria-label="Failed to send" />
+              <button
+                type="button"
+                onClick={() => void retryMessage(message)}
+                class="!opacity-100 font-medium underline underline-offset-2 hover:opacity-80"
+              >
+                Retry
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -173,9 +191,25 @@ function MessageBubble({
   );
 }
 
+/** Human-readable upload progress for an outgoing file card. */
+function uploadStateLabel(message: LocalMessage): string | null {
+  if (message.direction !== "out") return null;
+  switch (message.status) {
+    case "queued":
+      return "Waiting to upload";
+    case "uploading":
+      return "Uploading…";
+    case "failed":
+      return "Upload failed";
+    default:
+      return null;
+  }
+}
+
 function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolean }): JSX.Element {
   const file = message.file!;
   const state = message.fileState;
+  const uploadLabel = uploadStateLabel(message);
 
   return (
     <div
@@ -198,27 +232,54 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         </div>
         <div class={cx("font-mono text-[11px] tracking-[0.02em]", mine ? "text-on-accent/70" : "text-muted")}>
           {formatBytes(file.size)}
+          {uploadLabel && ` · ${uploadLabel}`}
         </div>
       </div>
       <div class="flex-none">
-        {state === "downloading" && <Spinner />}
-        {(state === "downloaded" || message.direction === "out") && (
-          <IconButton
-            label="Save file"
-            class={cx("size-[34px]", mine && "text-white/90 hover:bg-white/15 hover:text-white")}
-            onClick={() => void saveFile(message)}
-          >
-            <Download />
-          </IconButton>
-        )}
-        {state === "error" && (
-          <IconButton
-            label="Retry download"
-            class={cx("size-[34px]", mine && "text-white/90 hover:bg-white/15 hover:text-white")}
-            onClick={() => void syncNow()}
-          >
-            <RotateCw />
-          </IconButton>
+        {message.direction === "out" ? (
+          message.status === "uploading" ? (
+            <span class="grid size-[34px] place-items-center">
+              <Spinner class={mine ? "!border-white/40 !border-t-white" : undefined} />
+            </span>
+          ) : message.status === "failed" ? (
+            <IconButton
+              label="Retry upload"
+              class={cx("size-[34px]", mine && "text-white/90 hover:bg-white/15 hover:text-white")}
+              onClick={() => void retryMessage(message)}
+            >
+              <RotateCw />
+            </IconButton>
+          ) : (
+            <IconButton
+              label="Save file"
+              class={cx("size-[34px]", mine && "text-white/90 hover:bg-white/15 hover:text-white")}
+              onClick={() => void saveFile(message)}
+            >
+              <Download />
+            </IconButton>
+          )
+        ) : (
+          <>
+            {state === "downloading" && <Spinner />}
+            {state === "downloaded" && (
+              <IconButton
+                label="Save file"
+                class="size-[34px]"
+                onClick={() => void saveFile(message)}
+              >
+                <Download />
+              </IconButton>
+            )}
+            {state === "error" && (
+              <IconButton
+                label="Retry download"
+                class="size-[34px]"
+                onClick={() => void syncNow()}
+              >
+                <RotateCw />
+              </IconButton>
+            )}
+          </>
         )}
       </div>
     </div>

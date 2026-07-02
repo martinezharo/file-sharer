@@ -2,7 +2,7 @@ import { sendFileMessages } from "../actions";
 import { session } from "../state/session";
 import { composerDraft, showToast, view } from "../state/ui";
 
-// Keep in sync with public/share-target.sw.js.
+// Keep in sync with src/sw/share-target.ts.
 const SHARE_CACHE = "share-target-v1";
 
 interface ShareMeta {
@@ -15,7 +15,7 @@ interface ShareMeta {
 /**
  * Drain content delivered by the Web Share Target.
  *
- * The service worker (public/share-target.sw.js) stashes the shared text + files
+ * The service worker (src/sw/share-target.ts) stashes the shared text + files
  * in the Cache Storage and redirects to `/?share-target=1`. We pick it up here:
  * text prefills the composer for review, files are queued like a normal upload.
  */

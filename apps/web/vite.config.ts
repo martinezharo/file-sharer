@@ -12,6 +12,15 @@ export default defineConfig({
       // We register the service worker ourselves in main.tsx (bundled, so the
       // strict `script-src 'self'` CSP holds) to add periodic/focus update checks.
       injectRegister: false,
+      // Custom SW (src/sw.ts): precache + SPA fallback like generateSW did,
+      // plus the Web Share Target handler and Background Sync outbox flushing
+      // (uploads finish even after the app is closed).
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
+      },
       includeAssets: [
         "icon.svg",
         "icon-maskable.svg",
@@ -41,7 +50,7 @@ export default defineConfig({
           { src: "/icon-maskable.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
         ],
         // Let the OS share sheet send text & files to this installed PWA. The
-        // POST is intercepted in public/share-target.sw.js (see importScripts).
+        // POST is intercepted by the service worker (src/sw/share-target.ts).
         share_target: {
           action: "/share-target",
           method: "POST",
@@ -53,18 +62,6 @@ export default defineConfig({
             files: [{ name: "files", accept: ["*/*"] }],
           },
         },
-      },
-      workbox: {
-        // Pull in the Web Share Target fetch handler alongside the generated SW.
-        importScripts: ["/share-target.sw.js"],
-        // Never let the service worker serve the API from cache.
-        navigateFallbackDenylist: [/^\/api\//],
-        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
-        // Take control immediately and drop stale precaches so a new deploy is
-        // fully live after one auto-reload (no manual cache clearing).
-        clientsClaim: true,
-        skipWaiting: true,
-        cleanupOutdatedCaches: true,
       },
       devOptions: { enabled: false },
     }),

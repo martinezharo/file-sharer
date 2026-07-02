@@ -7,5 +7,8 @@
     "types": ["vite/client", "vite-plugin-pwa/client"],
     "noEmit": true
   },
-  "include": ["src"]
+  // The service worker is typechecked separately with the WebWorker lib
+  // (tsconfig.sw.json) — the DOM and WebWorker libs cannot coexist.
+  "include": ["src"],
+  "exclude": ["src/sw.ts", "src/sw"]
 }

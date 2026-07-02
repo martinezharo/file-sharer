@@ -1,6 +1,13 @@
 import { signal } from "@preact/signals";
 import type { Auth } from "../api/client";
-import { clearAll, metaGet, metaSet } from "../db/store";
+import {
+  clearAll,
+  META_DEVICE_KEYPAIR,
+  META_GROUP_KEY,
+  META_SESSION,
+  metaGet,
+  metaSet,
+} from "../db/store";
 import type { Session } from "../types";
 
 export const session = signal<Session | null>(null);
@@ -10,9 +17,9 @@ export const deviceKeyPair = signal<CryptoKeyPair | null>(null);
 /** True once the app has finished its initial load from IndexedDB. */
 export const ready = signal(false);
 
-const SESSION_KEY = "session";
-const GROUP_KEY = "groupKey";
-const DEVICE_KEYPAIR_KEY = "deviceKeyPair";
+const SESSION_KEY = META_SESSION;
+const GROUP_KEY = META_GROUP_KEY;
+const DEVICE_KEYPAIR_KEY = META_DEVICE_KEYPAIR;
 
 export function authHeaders(): Auth {
   const current = session.value;
