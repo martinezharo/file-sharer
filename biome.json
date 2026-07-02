@@ -48,5 +48,13 @@
         "noAssignInExpressions": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["**/tsconfig.*.json", "**/jsconfig.*.json"],
+      "json": {
+        "parser": { "allowComments": true, "allowTrailingCommas": true }
+      }
+    }
+  ]
 }
