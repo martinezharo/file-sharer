@@ -133,6 +133,10 @@ export const api = {
     return jsonRequest("GET", `/pairing/${pairingId}`, { retries: 0 });
   },
 
+  async pairingDelete(pairingId: string): Promise<void> {
+    await rawRequest("DELETE", `/pairing/${pairingId}`, { retries: 0 });
+  },
+
   sendMessage(body: SendMessageRequest, auth: Auth): Promise<void> {
     return jsonRequest("POST", "/messages", { jsonBody: body, auth });
   },

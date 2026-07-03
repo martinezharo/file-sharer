@@ -133,3 +133,16 @@ export async function pollPairing(c: RouteContext): Promise<Response> {
     ephemeralPublicKey: slot.eph,
   } satisfies PairingPollResponse);
 }
+
+/**
+ * Step 4 (joining device, semi-open): the joining device calls this right after
+ * it has successfully unwrapped the package and persisted its session, so the
+ * (encrypted) slot doesn't linger reachable by `pairingId` until cron reaps it.
+ * Best-effort from the client's point of view: if this never arrives, cron
+ * still cleans the slot up after PAIRING_TTL.
+ */
+export async function deletePairing(c: RouteContext): Promise<Response> {
+  const pairingId = requireId(c.params.pairingId, "pairingId");
+  await c.env.DB.prepare("DELETE FROM pairing WHERE pairing_id = ?").bind(pairingId).run();
+  return json({ ok: true });
+}
