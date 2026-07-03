@@ -195,6 +195,7 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
     {
       wrappedPackage: wrapped.wrappedPackage,
       ephemeralPublicKey: wrapped.ephemeralPublicKey,
+      scannedPublicKey: payload.publicKey,
       encryptedName: name.ciphertext,
       nameIv: name.iv,
     },

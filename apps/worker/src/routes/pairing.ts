@@ -57,6 +57,7 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const body = await readJson<PairingCompleteBody>(c.request);
   const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 8192);
   const ephemeralPublicKey = requireString(body.ephemeralPublicKey, "ephemeralPublicKey", 2048);
+  const scannedPublicKey = requireString(body.scannedPublicKey, "scannedPublicKey", 2048);
   const nameEnc = requireString(body.encryptedName, "encryptedName", 1024);
   const nameIv = requireString(body.nameIv, "nameIv", 128);
 
@@ -73,6 +74,15 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   }
 
   const device = JSON.parse(slot.newDevice) as DeviceDescriptor;
+
+  // Defense in depth: the wrap targets the key scanned out-of-band from the QR
+  // code, but the slot stores whatever public key step 1 (anonymous) published.
+  // They should always match in the normal flow; reject if they don't rather
+  // than silently wrapping the GroupKey for a key nobody scanned.
+  if (device.publicKey !== scannedPublicKey) {
+    throw new ApiError("conflict", "Pairing slot public key does not match the scanned device");
+  }
+
   const now = Date.now();
 
   // The device id is chosen by the (unauthenticated) joining device in step 1, so

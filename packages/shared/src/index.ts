@@ -102,6 +102,14 @@ export interface PairingCompleteBody {
   /** Ephemeral ECDH P-256 public key (base64url SPKI) used to derive the wrap key. */
   ephemeralPublicKey: string;
   /**
+   * The joining device's public key as scanned from the QR code (out-of-band,
+   * not the pairing slot). The server checks this matches the public key the
+   * joining device published in step 1, so a slot whose stored public key was
+   * swapped after the QR was scanned is rejected instead of silently wrapped
+   * for the wrong recipient.
+   */
+  scannedPublicKey: string;
+  /**
    * GroupKey-encrypted name of the *joining* device. The existing device holds
    * the GroupKey and the scanned (out-of-band) name, so it encrypts it here;
    * the joining device never sends its name to the server in the clear.
