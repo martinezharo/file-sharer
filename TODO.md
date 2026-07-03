@@ -33,9 +33,9 @@ Biggest remaining items (need design decisions, don't do blindly):
 - [ ] 🟠🛠️ **Single shared group token (not per-device).** All devices share one bearer. If it leaks from any device → full access. Also `X-Device-Id` is a self-asserted string: with the shared token, a device can impersonate another's `deviceId` (read its pending messages, ack, send as it). Redesign to a **per-device token** (server maps token→device→group); this also makes revocation actually cut off the affected device.
 - [ ] 🟠🏗️ **No sender authenticity.** `senderDeviceId`/`senderName` are provided by the server, not the sender. A malicious server can forge who sent what. Add a **signing** keypair per device (ECDSA/Ed25519) and sign messages; the receiver verifies with the public key published at pairing time.
 - [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages. Consider per-device signed sequence numbers. At minimum, document it in the threat model.
-- [ ] 🟡⚡ **Pairing slot not deleted on completion.** `pollPairing` leaves the (encrypted) package reachable by `pairingId` until cron reaps it (≤10 min). Delete the slot after a successful poll/ack by the joining device.
-- [ ] 🟡⚡ **`completePairing` registers the slot's public key (step 1, anonymous), not the scanned one.** The wrap targets the scanned QR key, but D1 stores `slot.newDevice.publicKey`. They match in the normal flow, but verifying QR pubkey == slot pubkey would be good defense in depth.
-- [ ] 🟡🛠️ **JSON bodies are parsed before size validation.** `readJson` reads the whole body even though `encryptedPayload` is capped at 1 MB *afterwards*. Add an early `Content-Length` check on JSON endpoints.
+- [x] ~~🟡⚡ **Pairing slot not deleted on completion.**~~ `pollPairing` left the (encrypted) package reachable by `pairingId` until cron reaped it (≤10 min). Fixed: the joining device now calls a new `DELETE /api/pairing/:pairingId` endpoint right after it successfully unwraps the package and persists its session; cron remains the safety net if that call never arrives.
+- [x] ~~🟡⚡ **`completePairing` registers the slot's public key (step 1, anonymous), not the scanned one.**~~ The wrap targeted the scanned QR key, but D1 stored `slot.newDevice.publicKey`, with nothing checking they matched. Fixed: the existing device now also sends `scannedPublicKey` in `PairingCompleteBody`, and the server rejects the request if it doesn't match the slot's.
+- [x] ~~🟡🛠️ **JSON bodies are parsed before size validation.**~~ `readJson` read the whole body even though `encryptedPayload` is capped at 1 MB *afterwards*. Fixed: added an early `Content-Length` check (`MAX_JSON_BODY_SIZE`, 2 MB) in `apps/worker/src/http.ts` that rejects oversized bodies with 413 before parsing.
 - [ ] 🔵🛠️ **Shared files sit in Cache Storage in clear** until `consumeSharedContent` drains them. Small exposure window; encrypt or clean up more aggressively.
 
 ## 2. Privacy
@@ -47,10 +47,10 @@ Biggest remaining items (need design decisions, don't do blindly):
 ## 3. Performance
 
 - [ ] 🟠🏗️ **Polling every 8 s** (`POLL_INTERVAL_MS`) drains battery and adds latency. Migrate to WebSocket/SSE with Durable Objects for real-time push delivery.
-- [ ] 🟡⚡ **Dead `since` cursor.** `apps/web/src/sync/sync.ts` always calls `api.pendingMessages(auth)` with `since=0`; the parameter exists but never advances. Track the last acked `createdAt` and pass it, reducing the server-side scan.
+- [ ] 🟡⚡ **Dead `since` cursor — needs a design decision, not a blind wire-up.** `apps/web/src/sync/sync.ts` always calls `api.pendingMessages(auth)` with `since=0`. On inspection this isn't just an unused optimization: the worker query (`apps/worker/src/routes/messages.ts`) already scopes results via `ds.device_id = ? AND ds.downloaded_at IS NULL` (backed by `idx_delivery_device_pending`), so every row returned is, by definition, still pending for this device — `since` currently adds nothing. Naively wiring it to "last acked `createdAt`" would filter on `m.created_at`, which is a wall-clock timestamp assigned by whichever edge Worker handled `sendMessage`; under clock skew/out-of-order arrival across colos, a message from another device could land with a `created_at` at or before the cursor and get **silently filtered out and never delivered**. If this is worth doing, it needs a monotonic cursor (e.g. an auto-increment `rowid`/sequence) instead of `created_at`, which is a real design decision — left for §0.
 - [ ] 🟡🛠️ **One-shot in-memory file crypto.** `encryptFile`/`decryptFile` load the whole file + ciphertext + decrypted copy (up to ~3×50 MB) into RAM. Move to chunked/streaming crypto for low-end phones and to be able to raise the size limit.
 - [ ] 🟡🛠️ **Heavy initial bundle.** `jsqr`, `qrcode` and the scanner are only needed when pairing; the 3 variable font families (`bricolage`, `hanken`, `jetbrains-mono`) are loaded eagerly in `main.tsx`. Code-split the pairing flow (lazy import) and subset/selectively preload fonts.
-- [ ] 🟡⚡ **`upsertMessage` re-sorts the whole array** on every insert (`state/messages.ts`). Degrades with large histories and batch syncs. Insert in order or keep a `Map` + derived view.
+- [x] ~~🟡⚡ **`upsertMessage` re-sorts the whole array** on every insert (`state/messages.ts`).~~ Fixed: `applyMessageUpdate` now updates in place for an existing id (its `createdAt` never changes) or inserts a new message directly at its sorted position via binary search, instead of a full `sort()`.
 - [ ] 🔵🛠️ **Chat list not virtualized** (`Chat.tsx`): full re-render. Virtualize for long histories.
 - [ ] 🔵🟡 **Base64 ciphertext in D1** (up to 1 MB per `encryptedPayload`) bloats the database. Acceptable, keep an eye on it.
 
@@ -78,8 +78,8 @@ Biggest remaining items (need design decisions, don't do blindly):
 - [ ] 🟡🛠️ **No delete/clear history** or single-message delete (local or for everyone). Add message management.
 - [ ] 🟡🛠️ **No date separators** in the chat (time only). Group by day.
 - [ ] 🔵⚡ **`Modal` has no full focus trap** (Escape + focus restore are done). Trap Tab within the dialog.
-- [ ] 🔵⚡ **`prefers-reduced-motion`** not honored in animations (`animate-toast-in`, `animate-modal-in`). Respect it.
-- [ ] 🔵⚡ **Error toasts** use `role="status"`; errors should use `role="alert"`.
+- [x] ~~🔵⚡ **`prefers-reduced-motion`** not honored in animations (`animate-toast-in`, `animate-modal-in`).~~ Turns out already handled: `styles.css` has a blanket `@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }` covering every `animate-*` class. Stale entry, found while doing this pass — no code change needed.
+- [x] ~~🔵⚡ **Error toasts** use `role="status"`; errors should use `role="alert"`.~~ Fixed: the role moved from the shared toast container to each toast individually (`role="alert"` for errors, `role="status"` otherwise).
 - [ ] 🔵⚡ **Rename a device** after creation: doesn't exist.
 - [ ] 🔵⚡ **Delivery/read indicators.** The server already has `delivery_status`; could show "delivered to N devices".
 - [ ] 🔵🛠️ **No search** in messages.
