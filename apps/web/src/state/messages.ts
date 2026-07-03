@@ -8,15 +8,37 @@ export async function loadMessages(): Promise<void> {
   messages.value = await allMessages();
 }
 
+/** Insert `message` into an array already sorted by `createdAt`, ascending. */
+function insertSorted(list: LocalMessage[], message: LocalMessage): LocalMessage[] {
+  let lo = 0;
+  let hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (list[mid]!.createdAt <= message.createdAt) lo = mid + 1;
+    else hi = mid;
+  }
+  const next = list.slice();
+  next.splice(lo, 0, message);
+  return next;
+}
+
 /**
  * Update the in-memory signal only. Used when the message is already persisted
  * (e.g. the service worker flushed the outbox and broadcast the new state).
+ *
+ * `createdAt` is assigned once at message creation and never changes, so an
+ * update to an existing message can be applied in place without re-sorting.
  */
 export function applyMessageUpdate(message: LocalMessage): void {
-  const next = messages.value.filter((m) => m.id !== message.id);
-  next.push(message);
-  next.sort((a, b) => a.createdAt - b.createdAt);
-  messages.value = next;
+  const current = messages.value;
+  const idx = current.findIndex((m) => m.id === message.id);
+  if (idx !== -1) {
+    const next = current.slice();
+    next[idx] = message;
+    messages.value = next;
+    return;
+  }
+  messages.value = insertSorted(current, message);
 }
 
 /** Insert or update a message both in IndexedDB and the reactive signal. */
