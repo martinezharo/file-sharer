@@ -146,14 +146,11 @@ export function Spinner({
    ------------------------------------------------------------------------ */
 export function Toasts(): JSX.Element {
   return (
-    <div
-      class="fixed left-1/2 top-[calc(16px+env(safe-area-inset-top))] z-[100] flex w-max max-w-[min(92vw,420px)] -translate-x-1/2 flex-col items-center gap-2.5 max-md:top-[calc(68px+env(safe-area-inset-top))]"
-      role="status"
-      aria-live="polite"
-    >
+    <div class="fixed left-1/2 top-[calc(16px+env(safe-area-inset-top))] z-[100] flex w-max max-w-[min(92vw,420px)] -translate-x-1/2 flex-col items-center gap-2.5 max-md:top-[calc(68px+env(safe-area-inset-top))]">
       {toasts.value.map((t) => (
         <div
           key={t.id}
+          role={t.kind === "error" ? "alert" : "status"}
           class={cx(
             "animate-toast-in flex items-center gap-2.5 rounded-card border border-line bg-elevated px-3.5 py-3 text-[13.5px] font-medium text-ink shadow-float [&_svg]:size-[18px] [&_svg]:flex-none",
             t.kind === "error" && "border-danger/40",

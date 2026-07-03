@@ -136,6 +136,9 @@ async function pollLink(
     };
     await persistSession(newSession, recoveredGroupKey, keyPair);
     await metaDelete("pendingPairing");
+    // Best-effort: the slot is already TTL-reaped by cron, this just avoids
+    // leaving the (encrypted) package reachable until then.
+    void api.pairingDelete(pairingId).catch(() => {});
     await loadMessages();
     startSync();
     linking.value = null;
@@ -192,6 +195,7 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
     {
       wrappedPackage: wrapped.wrappedPackage,
       ephemeralPublicKey: wrapped.ephemeralPublicKey,
+      scannedPublicKey: payload.publicKey,
       encryptedName: name.ciphertext,
       nameIv: name.iv,
     },

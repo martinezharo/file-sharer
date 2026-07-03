@@ -6,7 +6,7 @@ import { listDevices, revokeDevice } from "./routes/devices";
 import { downloadFile, uploadFile } from "./routes/files";
 import { createGroup } from "./routes/groups";
 import { ackMessage, pendingMessages, sendMessage } from "./routes/messages";
-import { completePairing, pollPairing, requestPairing } from "./routes/pairing";
+import { completePairing, deletePairing, pollPairing, requestPairing } from "./routes/pairing";
 import { withSecurityHeaders } from "./security";
 
 const router = new Router();
@@ -16,6 +16,7 @@ router.post("/api/groups", createGroup);
 router.post("/api/pairing/:pairingId/request", requestPairing);
 router.post("/api/pairing/:pairingId/complete", completePairing);
 router.get("/api/pairing/:pairingId", pollPairing);
+router.delete("/api/pairing/:pairingId", deletePairing);
 
 router.get("/api/messages/pending", pendingMessages);
 router.post("/api/messages/:id/ack", ackMessage);
