@@ -1,7 +1,19 @@
 import { ApiError } from "./errors";
 
-/** Parse a JSON request body, raising a typed 400 on malformed input. */
+/**
+ * Upper bound for any JSON request body. Generous enough for the largest
+ * legitimate payload (a text message's `encryptedPayload`, capped at 1 MB by
+ * `requireString`) plus JSON overhead, while still rejecting a client that
+ * tries to make us buffer/parse an oversized body before per-field checks run.
+ */
+const MAX_JSON_BODY_SIZE = 2 * 1024 * 1024;
+
+/** Parse a JSON request body, raising a typed 400/413 on invalid input. */
 export async function readJson<T>(request: Request): Promise<T> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > MAX_JSON_BODY_SIZE) {
+    throw new ApiError("payload_too_large", "Request body too large");
+  }
   try {
     return (await request.json()) as T;
   } catch {
