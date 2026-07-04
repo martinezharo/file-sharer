@@ -121,6 +121,8 @@ async function doFlush(notify?: NotifyUpdate): Promise<FlushResult> {
 }
 
 async function update(message: LocalMessage, notify?: NotifyUpdate): Promise<void> {
+  // If the user deleted the message locally mid-flush, don't resurrect it.
+  if (!(await getMessage(message.id))) return;
   await putMessage(message);
   notify?.(message);
 }

@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import { allMessages, putMessage } from "../db/store";
+import { allMessages, deleteMessage, putMessage } from "../db/store";
 import type { LocalMessage } from "../types";
 
 export const messages = signal<LocalMessage[]>([]);
@@ -45,6 +45,12 @@ export function applyMessageUpdate(message: LocalMessage): void {
 export async function upsertMessage(message: LocalMessage): Promise<void> {
   await putMessage(message);
   applyMessageUpdate(message);
+}
+
+/** Remove a message from IndexedDB and the reactive signal. */
+export async function removeMessage(id: string): Promise<void> {
+  await deleteMessage(id);
+  messages.value = messages.value.filter((m) => m.id !== id);
 }
 
 export function getLocalMessage(id: string): LocalMessage | undefined {

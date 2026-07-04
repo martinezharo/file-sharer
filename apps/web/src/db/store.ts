@@ -69,6 +69,10 @@ export async function allMessages(): Promise<LocalMessage[]> {
   return (await db()).getAllFromIndex("messages", "by-createdAt");
 }
 
+export async function deleteMessage(id: string): Promise<void> {
+  await (await db()).delete("messages", id);
+}
+
 // --- files ---
 
 export async function putFile(r2Key: string, blob: Blob): Promise<void> {
@@ -77,6 +81,10 @@ export async function putFile(r2Key: string, blob: Blob): Promise<void> {
 
 export async function getFile(r2Key: string): Promise<Blob | undefined> {
   return (await (await db()).get("files", r2Key))?.blob;
+}
+
+export async function deleteFile(r2Key: string): Promise<void> {
+  await (await db()).delete("files", r2Key);
 }
 
 /** Wipe everything (used on logout / space reset). */

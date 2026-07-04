@@ -16,8 +16,8 @@ import {
   unwrapPairingPackage,
   wrapPairingPackage,
 } from "./crypto/crypto";
-import { getFile, metaDelete, metaGet, metaSet, putFile } from "./db/store";
-import { loadMessages, upsertMessage } from "./state/messages";
+import { deleteFile, getFile, metaDelete, metaGet, metaSet, putFile } from "./db/store";
+import { loadMessages, removeMessage, upsertMessage } from "./state/messages";
 import { authHeaders, groupKey, persistSession, resetSession, session } from "./state/session";
 import { showToast, view } from "./state/ui";
 import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
@@ -348,6 +348,76 @@ export async function saveFile(message: LocalMessage): Promise<void> {
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ---------------------------------------------------------------------------
+// Message actions (context menu)
+// ---------------------------------------------------------------------------
+
+export async function copyMessageText(message: LocalMessage): Promise<void> {
+  if (!message.text) return;
+  try {
+    await navigator.clipboard.writeText(message.text);
+    showToast("Copied to clipboard");
+  } catch {
+    showToast("Couldn't copy to clipboard", "error");
+  }
+}
+
+/** Whether the Web Share API can plausibly share this message from here. */
+export function canShareMessage(message: LocalMessage): boolean {
+  if (typeof navigator.share !== "function") return false;
+  if (message.text) return true;
+  // Files can only be shared once the decrypted blob is cached locally.
+  return !!message.file && message.fileState === "downloaded";
+}
+
+export async function shareMessage(message: LocalMessage): Promise<void> {
+  try {
+    if (message.text) {
+      await navigator.share({ text: message.text });
+      return;
+    }
+    if (!message.file) return;
+    const blob = await getFile(message.file.r2Key);
+    if (!blob) {
+      showToast("File is no longer available", "error");
+      return;
+    }
+    const file = new File([blob], message.file.name, { type: message.file.mime });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file] });
+    } else {
+      showToast("Sharing files isn't supported on this device", "error");
+    }
+  } catch (error) {
+    // The user dismissing the share sheet is not an error.
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    showToast("Couldn't share", "error");
+  }
+}
+
+/**
+ * Delete a message from THIS device only (other devices keep their copy).
+ * An incoming message the server still lists as pending must be acked first,
+ * otherwise the next sync pass would just re-download it.
+ */
+export async function deleteMessageLocally(message: LocalMessage): Promise<void> {
+  if (message.direction === "in" && !message.acked) {
+    try {
+      await api.ackMessage(message.id, authHeaders());
+    } catch {
+      showToast("Couldn't delete — check your connection and try again", "error");
+      return;
+    }
+  }
+  await removeMessage(message.id);
+  if (message.file) {
+    await deleteFile(message.file.r2Key).catch(() => {
+      /* cached blob cleanup is best-effort */
+    });
+  }
+  showToast("Deleted on this device");
 }
 
 // ---------------------------------------------------------------------------

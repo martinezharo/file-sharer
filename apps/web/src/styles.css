@@ -236,6 +236,27 @@
     box-shadow: var(--ring);
   }
 
+  /* Message-menu hover trigger: pointless without a hovering pointer, so it
+     only exists on mouse-driven devices (touch long-presses the bubble). */
+  .msg-actions-trigger {
+    display: none;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .msg-actions-trigger {
+      display: grid;
+    }
+  }
+
+  /* On touch devices a long-press opens the message menu; suppress the
+     competing native text-selection / iOS callout on bubbles there. */
+  @media (pointer: coarse) {
+    .msg-bubble {
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+  }
+
   .spinner {
     display: inline-block;
     width: 16px;
@@ -270,6 +291,12 @@
     transform: translateY(-10px);
   }
 }
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
 
 .animate-fade-in {
   animation: fade-in 0.18s ease;
@@ -279,6 +306,9 @@
 }
 .animate-toast-in {
   animation: toast-in 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.animate-menu-in {
+  animation: menu-in 0.14s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -13,6 +13,7 @@ import {
   FileText,
   FileVideo,
   Lock,
+  MoreVertical,
   Plus,
   RotateCw,
 } from "lucide-preact";
@@ -32,6 +33,7 @@ import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
 import type { FileRef, LocalMessage } from "../types";
 import { cx, formatBytes, formatTime, IconButton, Spinner } from "./components";
+import { type MenuAnchor, MessageMenu } from "./MessageMenu";
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 
@@ -133,6 +135,11 @@ function EmptyState(): JSX.Element {
   );
 }
 
+/** How long a touch must be held on a bubble before the menu opens. */
+const LONG_PRESS_MS = 450;
+/** Finger drift beyond this cancels the long-press (it's a scroll). */
+const LONG_PRESS_DRIFT_PX = 10;
+
 function MessageBubble({
   message,
   mine,
@@ -145,16 +152,65 @@ function MessageBubble({
   const displayDeviceName =
     message.senderDeviceName ?? deviceName ?? (mine ? session.value?.deviceName : undefined);
 
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  const pressTimer = useRef<number | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+
+  function cancelPress(): void {
+    if (pressTimer.current !== null) clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+    pressStart.current = null;
+  }
+
+  // iOS Safari never fires `contextmenu` on long-press, so touch long-press is
+  // detected by hand. Android's native long-press arrives as `contextmenu`
+  // (handled below), racing this timer — whichever fires first wins.
+  function onPointerDown(e: JSX.TargetedPointerEvent<HTMLDivElement>): void {
+    if (e.pointerType !== "touch" || menu) return;
+    const { clientX, clientY } = e;
+    pressStart.current = { x: clientX, y: clientY };
+    pressTimer.current = window.setTimeout(() => {
+      cancelPress();
+      navigator.vibrate?.(10);
+      setMenu({ x: clientX, y: clientY });
+    }, LONG_PRESS_MS);
+  }
+
+  function onPointerMove(e: JSX.TargetedPointerEvent<HTMLDivElement>): void {
+    const start = pressStart.current;
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > LONG_PRESS_DRIFT_PX) cancelPress();
+  }
+
+  // Desktop right-click and Android long-press.
+  function onContextMenu(e: JSX.TargetedMouseEvent<HTMLDivElement>): void {
+    e.preventDefault();
+    cancelPress();
+    if (!menu) setMenu({ x: e.clientX, y: e.clientY });
+  }
+
+  function openFromTrigger(e: JSX.TargetedMouseEvent<HTMLButtonElement>): void {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenu({ x: mine ? rect.right : rect.left, y: rect.bottom + 6 });
+  }
+
   return (
-    <div class={cx("mt-[9px] flex", mine ? "justify-end" : "justify-start")}>
+    <div class={cx("group mt-[9px] flex items-center gap-1", mine ? "justify-end" : "justify-start")}>
+      {mine && <MenuTrigger onOpen={openFromTrigger} />}
       <div
         class={cx(
-          "max-w-[min(80%,540px)] rounded-card text-[14.5px] leading-normal shadow-soft max-md:max-w-[86%]",
+          "msg-bubble max-w-[min(80%,540px)] rounded-card text-[14.5px] leading-normal shadow-soft transition-shadow max-md:max-w-[86%]",
           message.file ? "p-[7px]" : "px-[13px] py-[9px]",
           mine
             ? "rounded-br-[5px] bg-accent text-on-accent"
             : "rounded-bl-[5px] bg-surface text-ink dark:bg-surface-2",
+          menu && "ring-2 ring-accent/50",
         )}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={cancelPress}
+        onPointerCancel={cancelPress}
+        onContextMenu={onContextMenu}
       >
         {displayDeviceName && (
           <div
@@ -195,7 +251,39 @@ function MessageBubble({
           )}
         </div>
       </div>
+      {!mine && <MenuTrigger onOpen={openFromTrigger} />}
+      {menu && (
+        <MessageMenu
+          message={message}
+          anchor={menu}
+          alignRight={mine}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Hover-revealed "⋮" button beside a bubble. Only rendered on devices with a
+ * real pointer (`.msg-actions-trigger` is display:none elsewhere) — touch
+ * users long-press the bubble instead.
+ */
+function MenuTrigger({
+  onOpen,
+}: {
+  onOpen: (e: JSX.TargetedMouseEvent<HTMLButtonElement>) => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label="Message actions"
+      title="Message actions"
+      onClick={onOpen}
+      class="msg-actions-trigger size-7 flex-none place-items-center rounded-full text-muted opacity-0 transition hover:bg-surface-3 hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 [&_svg]:size-4"
+    >
+      <MoreVertical />
+    </button>
   );
 }
 
