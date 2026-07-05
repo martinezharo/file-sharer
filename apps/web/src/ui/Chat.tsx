@@ -72,9 +72,14 @@ export function Chat(): JSX.Element {
   const myId = currentSession?.deviceId;
   const [deviceNames, setDeviceNames] = useState<Map<string, string>>(() => new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasScrolledRef = useRef(false);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Open the chat already at the bottom; only animate for messages that
+    // arrive afterwards. The list starts empty and fills in async from
+    // IndexedDB, so "opened" means the first render that had messages.
+    bottomRef.current?.scrollIntoView({ behavior: hasScrolledRef.current ? "smooth" : "auto" });
+    if (list.length > 0) hasScrolledRef.current = true;
   }, [list.length]);
 
   useEffect(() => {
