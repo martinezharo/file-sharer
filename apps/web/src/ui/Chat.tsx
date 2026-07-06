@@ -160,6 +160,7 @@ function MessageBubble({
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const pressTimer = useRef<number | null>(null);
   const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const suppressTouchEnd = useRef(false);
 
   function cancelPress(): void {
     if (pressTimer.current !== null) clearTimeout(pressTimer.current);
@@ -172,13 +173,24 @@ function MessageBubble({
   // (handled below), racing this timer — whichever fires first wins.
   function onPointerDown(e: JSX.TargetedPointerEvent<HTMLDivElement>): void {
     if (e.pointerType !== "touch" || menu) return;
+    suppressTouchEnd.current = false;
     const { clientX, clientY } = e;
     pressStart.current = { x: clientX, y: clientY };
     pressTimer.current = window.setTimeout(() => {
       cancelPress();
+      suppressTouchEnd.current = true;
       navigator.vibrate?.(10);
       setMenu({ x: clientX, y: clientY });
     }, LONG_PRESS_MS);
+  }
+
+  // The menu opens while the finger is still down. Lifting it would otherwise
+  // synthesize a click on whatever now sits at that point — the menu backdrop
+  // (closing it instantly) or even the first menu item — so swallow it.
+  function onTouchEnd(e: JSX.TargetedTouchEvent<HTMLDivElement>): void {
+    if (!suppressTouchEnd.current) return;
+    suppressTouchEnd.current = false;
+    e.preventDefault();
   }
 
   function onPointerMove(e: JSX.TargetedPointerEvent<HTMLDivElement>): void {
@@ -215,6 +227,7 @@ function MessageBubble({
         onPointerMove={onPointerMove}
         onPointerUp={cancelPress}
         onPointerCancel={cancelPress}
+        onTouchEnd={onTouchEnd}
         onContextMenu={onContextMenu}
       >
         {displayDeviceName && (
