@@ -14,6 +14,15 @@ export interface MenuAnchor {
 const EDGE_MARGIN = 8;
 
 /**
+ * When the menu is opened by the app's own long-press timer, the browser's
+ * native long-press can still fire a trailing `contextmenu` (Android) a few
+ * ms later — by then aimed at the backdrop, which would instantly close the
+ * menu that just opened. Ignore backdrop context-menu events this soon after
+ * opening; anything later is a genuine new right-click / long-press.
+ */
+const OPEN_GRACE_MS = 600;
+
+/**
  * Per-message context menu. Rendered as a fixed-position popover clamped to
  * the viewport, with a full-screen backdrop that closes it on any outside
  * interaction. `alignRight` hangs the menu to the left of the anchor so own
@@ -31,6 +40,7 @@ export function MessageMenu({
   onClose: () => void;
 }): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
+  const openedAt = useRef(performance.now());
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -65,10 +75,15 @@ export function MessageMenu({
   return (
     <div
       class="fixed inset-0 z-[90]"
+      // Close on pointerdown (like native menus) rather than click: the finger
+      // that long-pressed the menu open is still down over the backdrop, and
+      // lifting it can synthesize a click there — pointerdown only fires for a
+      // genuinely new outside interaction.
+      onPointerDown={onClose}
       onClick={onClose}
       onContextMenu={(e) => {
         e.preventDefault();
-        onClose();
+        if (performance.now() - openedAt.current > OPEN_GRACE_MS) onClose();
       }}
     >
       <div
@@ -84,6 +99,7 @@ export function MessageMenu({
           top: `${pos?.top ?? anchor.y}px`,
           transformOrigin: alignRight ? "top right" : "top left",
         }}
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         {message.text && (
