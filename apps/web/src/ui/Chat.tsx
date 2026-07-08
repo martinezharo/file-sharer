@@ -141,7 +141,7 @@ function EmptyState(): JSX.Element {
 }
 
 /** How long a touch must be held on a bubble before the menu opens. */
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 400;
 /** Finger drift beyond this cancels the long-press (it's a scroll). */
 const LONG_PRESS_DRIFT_PX = 10;
 
@@ -159,7 +159,7 @@ function MessageBubble({
 
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const pressTimer = useRef<number | null>(null);
-  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const pressStart = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const suppressTouchEnd = useRef(false);
 
   function cancelPress(): void {
@@ -173,9 +173,14 @@ function MessageBubble({
   // (handled below), racing this timer — whichever fires first wins.
   function onPointerDown(e: JSX.TargetedPointerEvent<HTMLDivElement>): void {
     if (e.pointerType !== "touch" || menu) return;
+    // A second finger means a scroll/zoom gesture, not a long-press.
+    if (pressStart.current) {
+      cancelPress();
+      return;
+    }
     suppressTouchEnd.current = false;
-    const { clientX, clientY } = e;
-    pressStart.current = { x: clientX, y: clientY };
+    const { pointerId, clientX, clientY } = e;
+    pressStart.current = { pointerId, x: clientX, y: clientY };
     pressTimer.current = window.setTimeout(() => {
       cancelPress();
       suppressTouchEnd.current = true;
@@ -195,7 +200,7 @@ function MessageBubble({
 
   function onPointerMove(e: JSX.TargetedPointerEvent<HTMLDivElement>): void {
     const start = pressStart.current;
-    if (!start) return;
+    if (!start || e.pointerId !== start.pointerId) return;
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > LONG_PRESS_DRIFT_PX) cancelPress();
   }
 
