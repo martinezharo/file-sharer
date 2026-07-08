@@ -91,7 +91,10 @@ export function MessageMenu({
         role="menu"
         aria-label="Message actions"
         class={cx(
-          "fixed z-[91] min-w-[200px] rounded-[14px] border border-line bg-elevated p-1.5 shadow-float",
+          // select-none: the panel opens under a finger that is still mid
+          // long-press, and the browser's native text-selection gesture would
+          // otherwise select the first menu item's label.
+          "fixed z-[91] min-w-[200px] select-none rounded-[14px] border border-line bg-elevated p-1.5 shadow-float",
           pos ? "animate-menu-in" : "invisible",
         )}
         style={{
