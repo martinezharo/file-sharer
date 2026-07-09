@@ -1,6 +1,6 @@
 import { MAX_FILE_SIZE, type PairingQrPayload } from "@file-sharer/shared";
 import { signal } from "@preact/signals";
-import { api } from "./api/client";
+import { api, NetworkError } from "./api/client";
 import {
   decryptName,
   encryptName,
@@ -144,6 +144,11 @@ async function pollLink(
     linking.value = null;
     showToast("Device linked successfully");
   } catch (error) {
+    // A flaky network on a phone is the rule, not the exception: the next
+    // tick (2.5 s) should get a fresh chance. Only kill the loop and surface
+    // a hard error for things that retrying cannot fix (decrypt failure,
+    // malformed QR, etc.).
+    if (error instanceof NetworkError) return;
     stopLinkPolling();
     linking.value = linking.value
       ? { ...linking.value, status: "error", error: errorMessage(error) }

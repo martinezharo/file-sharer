@@ -106,12 +106,13 @@ async function doFlush(notify?: NotifyUpdate): Promise<FlushResult> {
       // Re-read instead of reusing `message`: sendQueuedFile pins `file.iv`
       // mid-flight and that pin must survive into the retry (see above).
       const current = (await getMessage(message.id)) ?? message;
-      if (error instanceof ApiError) {
+      if (error instanceof ApiError && !isTransientError(error)) {
         await update({ ...current, status: "failed" }, notify);
         result.failed++;
       } else {
-        // NetworkError: back to "queued" for the next attempt (also resets an
-        // in-flight "uploading" so the UI doesn't claim progress while offline).
+        // NetworkError or transient ApiError (rate_limited / internal): back to
+        // "queued" for the next attempt. The "uploading" → "queued" reset also
+        // keeps the UI honest while offline / being rate-limited.
         await update({ ...current, status: "queued" }, notify);
         result.remaining++;
       }
@@ -134,6 +135,18 @@ async function update(message: LocalMessage, notify?: NotifyUpdate): Promise<voi
  */
 function isAlreadySent(error: unknown): boolean {
   return error instanceof ApiError && error.code === "conflict";
+}
+
+/**
+ * A server `ApiError` that's worth retrying on the next pass instead of
+ * marking the message permanently failed. `rate_limited` is the textbook
+ * example: the server is explicitly telling us to back off, so the next
+ * flush should pick the message up again. `internal` covers transient 5xx
+ * where the call might succeed on retry; the alternative (marking failed)
+ * would silently drop the user's queued send on a single bad request.
+ */
+function isTransientError(error: ApiError): boolean {
+  return error.code === "rate_limited" || error.code === "internal";
 }
 
 async function sendQueuedText(
