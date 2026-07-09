@@ -226,6 +226,96 @@ check("no pending messages remain after ack", afterAckPending.messages.length ==
 const fileGone = await fetch(`${BASE}/api/files/${r2Key}`, { headers: headers(bAuth) });
 check("R2 file deleted immediately after full ack", fileGone.status === 404);
 
+// --- Cross-group ack rejection (security: #3) ----------------------------
+// A device with a valid token for group A must not be able to ack/delete a
+// message in group B, even by guessing the id. Build a second group with
+// two devices, persist a real message, then try to ack it from A's auth.
+const cKeys = await generateDeviceKeyPair();
+const c2Keys = await generateDeviceKeyPair();
+const cGroupId = randomId();
+const cToken = randomToken();
+const cId = randomId();
+const c2Id = randomId();
+const cGroupKey = await generateGroupKey();
+const cName = await encryptName(cGroupKey, "Group C device", cId);
+const cCreate = await postJson("/api/groups", {
+  groupId: cGroupId,
+  authTokenHash: await sha256Hex(cToken),
+  device: { id: cId, publicKey: await exportPublicKey(cKeys.publicKey) },
+  encryptedName: cName.ciphertext,
+  nameIv: cName.iv,
+});
+check("group C create returns 200", cCreate.ok);
+
+// Pair a second device into C so the message has a real recipient and
+// actually gets persisted (sendMessage short-circuits when no recipients).
+const cPairingId = randomId();
+const c2Public = await exportPublicKey(c2Keys.publicKey);
+await postJson(`/api/pairing/${cPairingId}/request`, {
+  device: { id: c2Id, publicKey: c2Public },
+});
+const cRecipient = await importPublicKey(c2Public);
+const cWrapped = await wrapPairingPackage(
+  cRecipient,
+  { groupKey: await exportGroupKey(cGroupKey), groupAuthToken: cToken, groupId: cGroupId },
+  cPairingId,
+);
+const c2Name = await encryptName(cGroupKey, "Group C2 device", c2Id);
+const cComplete = await postJson(
+  `/api/pairing/${cPairingId}/complete`,
+  {
+    wrappedPackage: cWrapped.wrappedPackage,
+    ephemeralPublicKey: cWrapped.ephemeralPublicKey,
+    scannedPublicKey: c2Public,
+    encryptedName: c2Name.ciphertext,
+    nameIv: c2Name.iv,
+  },
+  { token: cToken, deviceId: cId },
+);
+check("group C second device paired", cComplete.ok);
+
+const crossTextId = randomId();
+const crossEnc = await encryptText(cGroupKey, "private to C", `text:${crossTextId}`);
+const crossSend = await postJson(
+  "/api/messages",
+  { id: crossTextId, encryptedPayload: crossEnc.ciphertext, iv: crossEnc.iv },
+  { token: cToken, deviceId: cId },
+);
+check("group C message created", crossSend.ok);
+
+// A is authenticated but tries to ack C's message id. With the group
+// ownership check in place this should be 404 (not 200 and not 200+deleted).
+const crossAck = await postJson(`/api/messages/${crossTextId}/ack`, {}, aAuth);
+check("ackMessage rejects cross-group message with 404", crossAck.status === 404);
+
+// And the foreign message must still exist afterwards (C2 sees it pending).
+const c2Pending = (await (
+  await fetch(`${BASE}/api/messages/pending`, {
+    headers: headers({ token: cToken, deviceId: c2Id }),
+  })
+).json()) as { messages: { id: string }[] };
+check(
+  "cross-group message is still intact after rejected ack",
+  c2Pending.messages.some((m) => m.id === crossTextId),
+);
+
+// --- pollPairing rate limit (security: #4) --------------------------------
+// The poll endpoint is anonymous and should share the public-IP rate limit
+// with the other unauthenticated endpoints (RL_PUBLIC, 30/60s in dev).
+// Hammer it with a fresh pairing id (one that doesn't exist) until the
+// limiter trips. The limit is 30/60s in the wrangler config, so we need at
+// least 31 calls; the local limit may be lower, so we just check the
+// behavior — any 429 we see means the limiter is wired.
+let poll429 = false;
+for (let i = 0; i < 40; i++) {
+  const r = await fetch(`${BASE}/api/pairing/${randomId()}`);
+  if (r.status === 429) {
+    poll429 = true;
+    break;
+  }
+}
+check("pollPairing is rate-limited (eventually returns 429)", poll429);
+
 // --- Auth checks -----------------------------------------------------------
 const noAuth = await fetch(`${BASE}/api/devices`);
 check("unauthenticated request is rejected", noAuth.status === 401);
