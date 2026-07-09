@@ -133,6 +133,21 @@ export async function ackMessage(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   const messageId = requireId(c.params.id, "id");
 
+  // The UPDATE below only matches this device's own delivery row, so it
+  // can't leak between groups. But the subsequent COUNT + deleteMessageById
+  // operate on any messageId: a caller with a valid token for group A who
+  // guesses (or enumerates) a messageId from group B would see "0 pending"
+  // and trigger the cascade delete. Verify group ownership first.
+  const owned = await c.env.DB.prepare(
+    "SELECT id FROM messages WHERE id = ? AND group_id = ?",
+  )
+    .bind(messageId, auth.groupId)
+    .first<{ id: string }>();
+  if (!owned) {
+    // Don't leak the distinction between "wrong group" and "doesn't exist".
+    throw new ApiError("not_found", "Message not found");
+  }
+
   await c.env.DB.prepare(
     "UPDATE delivery_status SET downloaded_at = ? WHERE message_id = ? AND device_id = ? AND downloaded_at IS NULL",
   )

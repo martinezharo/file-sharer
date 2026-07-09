@@ -127,6 +127,11 @@ export async function completePairing(c: RouteContext): Promise<Response> {
  * The slot is left in place until TTL so a dropped response can be retried.
  */
 export async function pollPairing(c: RouteContext): Promise<Response> {
+  // Joining device polls this every few seconds while waiting for the existing
+  // device to complete the wrap. The endpoint is anonymous (no auth) and each
+  // poll costs a D1 read, so it has to share the public-IP rate limit with the
+  // other unauthenticated endpoints to stay out of the D1 free tier.
+  await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
   const pairingId = requireId(c.params.pairingId, "pairingId");
   const slot = await c.env.DB.prepare(
     "SELECT wrapped_package AS wrapped, ephemeral_public_key AS eph FROM pairing WHERE pairing_id = ?",
