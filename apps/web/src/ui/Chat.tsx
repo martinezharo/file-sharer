@@ -271,6 +271,12 @@ function MessageBubble({
           </div>
         )}
         {message.text && <div class="whitespace-pre-wrap break-words"><Linkify text={message.text} /></div>}
+        {message.corrupted && (
+          <div class="flex items-center gap-1.5 text-[13px] italic opacity-75 [&_svg]:size-[14px]">
+            <AlertCircle class="flex-none" />
+            Couldn&apos;t decrypt this message
+          </div>
+        )}
         {message.file && <FileAttachment message={message} mine={mine} />}
         <div
           class={cx(
@@ -334,16 +340,25 @@ function MenuTrigger({
   );
 }
 
-/** Human-readable upload progress for an outgoing file card. */
-function uploadStateLabel(message: LocalMessage): string | null {
-  if (message.direction !== "out") return null;
-  switch (message.status) {
-    case "queued":
-      return "Waiting to upload";
-    case "uploading":
-      return "Uploading…";
-    case "failed":
-      return "Upload failed";
+/** Human-readable transfer state for a file card. */
+function fileStateLabel(message: LocalMessage): string | null {
+  if (message.direction === "out") {
+    switch (message.status) {
+      case "queued":
+        return "Waiting to upload";
+      case "uploading":
+        return "Uploading…";
+      case "failed":
+        return "Upload failed";
+      default:
+        return null;
+    }
+  }
+  switch (message.fileState) {
+    case "corrupted":
+      return "Couldn't decrypt";
+    case "expired":
+      return "No longer available";
     default:
       return null;
   }
@@ -396,7 +411,7 @@ function useImageThumbnail(file: FileRef, available: boolean): string | null {
 function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolean }): JSX.Element {
   const file = message.file!;
   const state = message.fileState;
-  const uploadLabel = uploadStateLabel(message);
+  const stateLabel = fileStateLabel(message);
   const thumbnailUrl = useImageThumbnail(file, state === "downloaded");
 
   return (
@@ -429,7 +444,7 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         </div>
         <div class={cx("font-mono text-[11px] tracking-[0.02em]", mine ? "text-on-accent/70" : "text-muted")}>
           {formatBytes(file.size)}
-          {uploadLabel && ` · ${uploadLabel}`}
+          {stateLabel && ` · ${stateLabel}`}
         </div>
       </div>
       <div class="flex-none">
@@ -475,6 +490,14 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
               >
                 <RotateCw />
               </IconButton>
+            )}
+            {(state === "corrupted" || state === "expired") && (
+              <span
+                class="grid size-[34px] place-items-center text-muted [&_svg]:size-[18px]"
+                title={state === "corrupted" ? "Couldn't decrypt this file" : "File no longer available"}
+              >
+                <AlertCircle />
+              </span>
             )}
           </>
         )}

@@ -18,7 +18,16 @@ export interface FileRef {
 }
 
 export type MessageStatus = "queued" | "uploading" | "sent" | "failed";
-export type FileState = "remote" | "downloading" | "downloaded" | "error" | "expired";
+export type FileState =
+  | "remote"
+  | "downloading"
+  | "downloaded"
+  /** Transient download failure — retried on the next sync pass. */
+  | "error"
+  /** The server no longer has the blob (TTL/cleanup); it can never be fetched. */
+  | "expired"
+  /** Decryption failed repeatedly (tampered/poisoned ciphertext); given up. */
+  | "corrupted";
 
 /** A decrypted message as kept in local history. */
 export interface LocalMessage {
@@ -32,6 +41,8 @@ export interface LocalMessage {
   /** Outgoing delivery status (incoming messages are always "sent"). */
   status: MessageStatus;
   fileState?: FileState;
+  /** Incoming payload (text/file metadata) could not be decrypted; dropped. */
+  corrupted?: boolean;
   /** True once this device has acked receipt to the server (incoming only). */
   acked?: boolean;
 }

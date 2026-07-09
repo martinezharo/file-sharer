@@ -103,6 +103,7 @@ const completeRes = await postJson(
   {
     wrappedPackage: wrapped.wrappedPackage,
     ephemeralPublicKey: wrapped.ephemeralPublicKey,
+    scannedPublicKey: bPublic,
     encryptedName: bName.ciphertext,
     nameIv: bName.iv,
   },

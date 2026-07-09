@@ -34,21 +34,24 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
 
   const tokenHash = await sha256Hex(match[1]!.trim());
 
-  const group = await env.DB.prepare("SELECT id FROM groups WHERE auth_token_hash = ?")
-    .bind(tokenHash)
-    .first<{ id: string }>();
-  if (!group) {
+  // One round-trip for the two checks: the LEFT JOIN keeps the group row even
+  // when the device is missing/revoked, so "bad token" (401) and "bad device"
+  // (403) stay distinguishable.
+  const row = await env.DB.prepare(
+    `SELECT g.id AS groupId, d.id AS deviceId
+       FROM groups g
+       LEFT JOIN devices d
+         ON d.group_id = g.id AND d.id = ? AND d.revoked_at IS NULL
+      WHERE g.auth_token_hash = ?`,
+  )
+    .bind(deviceId, tokenHash)
+    .first<{ groupId: string; deviceId: string | null }>();
+  if (!row) {
     throw new ApiError("unauthorized", "Invalid token");
   }
-
-  const device = await env.DB.prepare(
-    "SELECT id FROM devices WHERE id = ? AND group_id = ? AND revoked_at IS NULL",
-  )
-    .bind(deviceId, group.id)
-    .first<{ id: string }>();
-  if (!device) {
+  if (!row.deviceId) {
     throw new ApiError("forbidden", "Device is not an active member of this group");
   }
 
-  return { groupId: group.id, deviceId };
+  return { groupId: row.groupId, deviceId };
 }

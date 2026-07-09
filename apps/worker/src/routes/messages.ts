@@ -54,6 +54,9 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     }
   }
 
+  // Friendly-path duplicate check; the racy window between this SELECT and
+  // the INSERT below is closed by mapping the unique-constraint error to the
+  // same `conflict` (the outbox treats it as "already sent").
   const existing = await c.env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(id).first();
   if (existing) {
     throw new ApiError("conflict", "Message id already exists");
@@ -84,7 +87,14 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
       ).bind(id, deviceId),
     ),
   ];
-  await c.env.DB.batch(stmts);
+  try {
+    await c.env.DB.batch(stmts);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      throw new ApiError("conflict", "Message id already exists");
+    }
+    throw error;
+  }
 
   return json({ ok: true } satisfies SendMessageResponse);
 }
