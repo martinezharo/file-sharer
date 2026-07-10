@@ -7,5 +7,3 @@ dist/
 *.log
 coverage/
 .vite/
-.claude/
-.agents/
