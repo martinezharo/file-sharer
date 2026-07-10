@@ -14,6 +14,13 @@ interface FileMeta {
   mime: string;
 }
 
+/**
+ * How many incoming files are fetched at once. Bounded because each download
+ * holds its full ciphertext + plaintext (up to 50 MB each) in memory while
+ * decrypting.
+ */
+const MAX_PARALLEL_DOWNLOADS = 4;
+
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 const onFocus = (): void => void syncNow();
@@ -54,13 +61,26 @@ export async function syncNow(): Promise<void> {
     }
 
     const { messages: pending } = await api.pendingMessages(auth);
+
+    // First register every incoming message (decrypt just the metadata) so
+    // all bubbles appear at once, then fetch the attachments concurrently
+    // instead of one after another.
+    const registered: LocalMessage[] = [];
     for (const pendingMessage of pending) {
       try {
-        await processIncoming(pendingMessage, key, auth);
+        registered.push(await registerIncoming(pendingMessage, key));
       } catch {
         // Leave it pending; the next poll will retry.
       }
     }
+
+    await runWithConcurrency(registered, MAX_PARALLEL_DOWNLOADS, async (local) => {
+      try {
+        await downloadAndAck(local, key, auth);
+      } catch {
+        // Leave it pending; the next poll will retry.
+      }
+    });
   } catch {
     // Network/transient errors are silently retried on the next tick.
   } finally {
@@ -80,11 +100,29 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   });
 }
 
-async function processIncoming(
+/** Run `fn` over `items`, keeping at most `limit` invocations in flight. */
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      await fn(items[next++]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/**
+ * Decrypt an incoming message's metadata and persist it locally (without
+ * downloading its file yet), so it shows up in the UI immediately.
+ */
+async function registerIncoming(
   pendingMessage: PendingMessage,
   key: CryptoKey,
-  auth: Auth,
-): Promise<void> {
+): Promise<LocalMessage> {
   let local = getLocalMessage(pendingMessage.id);
 
   if (!local) {
@@ -140,8 +178,17 @@ async function processIncoming(
     await upsertMessage(local);
   }
 
-  // For file messages we only confirm receipt (ack) AFTER a successful
-  // download + decrypt, so the server never deletes a file we haven't received.
+  return local;
+}
+
+/**
+ * Download + decrypt a registered message's file (if any), then ack it. For
+ * file messages we only confirm receipt (ack) AFTER a successful download +
+ * decrypt, so the server never deletes a file we haven't received.
+ */
+async function downloadAndAck(message: LocalMessage, key: CryptoKey, auth: Auth): Promise<void> {
+  let local = message;
+
   if (local.file && local.fileState !== "downloaded") {
     await upsertMessage({ ...local, fileState: "downloading" });
     try {
@@ -157,7 +204,7 @@ async function processIncoming(
   }
 
   if (!local.acked) {
-    await api.ackMessage(pendingMessage.id, auth);
+    await api.ackMessage(local.id, auth);
     await upsertMessage({ ...local, acked: true });
   }
 }

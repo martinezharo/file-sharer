@@ -66,8 +66,19 @@ function Linkify({ text }: { text: string }): JSX.Element {
   return <>{parts}</>;
 }
 
+/** Incoming file messages whose blob hasn't been fetched from the server yet. */
+function countIncomingDownloads(list: LocalMessage[]): number {
+  return list.filter(
+    (m) =>
+      m.direction === "in" &&
+      m.file &&
+      (m.fileState === "remote" || m.fileState === "downloading"),
+  ).length;
+}
+
 export function Chat(): JSX.Element {
   const list = messages.value;
+  const downloading = countIncomingDownloads(list);
   const currentSession = session.value;
   const myId = currentSession?.deviceId;
   const [deviceNames, setDeviceNames] = useState<Map<string, string>>(() => new Map());
@@ -102,7 +113,20 @@ export function Chat(): JSX.Element {
   }, [currentSession?.groupId, currentSession?.deviceId]);
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col">
+    <div class="relative flex min-h-0 flex-1 flex-col">
+      {downloading > 0 && (
+        <div class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2">
+          <div
+            role="status"
+            class="flex items-center gap-2 rounded-full bg-elevated px-3.5 py-[7px] text-[12.5px] font-medium text-ink shadow-pop"
+          >
+            <Spinner class="!size-[13px] !border-[1.5px]" />
+            <span>
+              Receiving {downloading === 1 ? "1 file" : `${downloading} files`}…
+            </span>
+          </div>
+        </div>
+      )}
       <div class="flex-1 overflow-y-auto px-6 pb-2 pt-[22px] max-md:px-[14px] max-md:pt-4">
         <div class="mx-auto flex w-full max-w-[760px] flex-col gap-[3px]">
           {list.length === 0 && <EmptyState />}
@@ -433,7 +457,7 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
           )
         ) : (
           <>
-            {state === "downloading" && <Spinner />}
+            {(state === "remote" || state === "downloading") && <Spinner />}
             {state === "downloaded" && (
               <IconButton
                 label="Save file"
