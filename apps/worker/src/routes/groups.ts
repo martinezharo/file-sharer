@@ -1,6 +1,6 @@
 import type { CreateGroupRequest, CreateGroupResponse } from "@file-sharer/shared";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireString } from "../http";
+import { readJson, requireId, requireSha256Hex, requireString } from "../http";
 import type { RouteContext } from "../router";
 import { clientIp, rateLimit } from "../security";
 
@@ -14,7 +14,7 @@ export async function createGroup(c: RouteContext): Promise<Response> {
   await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
   const body = await readJson<CreateGroupRequest>(c.request);
   const groupId = requireId(body.groupId, "groupId");
-  const authTokenHash = requireString(body.authTokenHash, "authTokenHash", 128);
+  const authTokenHash = requireSha256Hex(body.authTokenHash, "authTokenHash");
   const device = body.device;
   if (!device || typeof device !== "object") {
     throw new ApiError("bad_request", "Missing device");

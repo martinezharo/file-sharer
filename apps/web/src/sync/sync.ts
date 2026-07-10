@@ -1,5 +1,5 @@
 import { POLL_INTERVAL_MS, type PendingMessage } from "@file-sharer/shared";
-import { type Auth, api } from "../api/client";
+import { ApiError, type Auth, api } from "../api/client";
 import { getFile, putFile } from "../db/store";
 import { decryptFile, decryptJson, decryptName, decryptText } from "../crypto/crypto";
 import { applyMessageUpdate, getLocalMessage, upsertMessage } from "../state/messages";
@@ -20,6 +20,29 @@ interface FileMeta {
  * decrypting.
  */
 const MAX_PARALLEL_DOWNLOADS = 4;
+
+/**
+ * A decrypt failure is almost always permanent (tampered/poisoned ciphertext
+ * fails identically forever), but a handful of retries is cheap insurance
+ * against one-off corruption (e.g. a truncated download). Past this budget the
+ * message is marked corrupted and ACKED, so a hostile or buggy server can't
+ * make us re-download up to 50 MB every poll for 24 h. The counter lives in
+ * memory: giving up is persisted through the ack itself (the message stops
+ * being pending), so a reload can only ever re-spend the budget, not undo it.
+ */
+const MAX_DECRYPT_ATTEMPTS = 3;
+const decryptAttempts = new Map<string, number>();
+
+/** Record one failed decrypt for `scope`; true when the budget is exhausted. */
+function decryptBudgetExhausted(scope: string): boolean {
+  const attempts = (decryptAttempts.get(scope) ?? 0) + 1;
+  if (attempts >= MAX_DECRYPT_ATTEMPTS) {
+    decryptAttempts.delete(scope);
+    return true;
+  }
+  decryptAttempts.set(scope, attempts);
+  return false;
+}
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -126,10 +149,22 @@ async function registerIncoming(
   let local = getLocalMessage(pendingMessage.id);
 
   if (!local) {
-    const text =
-      pendingMessage.encryptedPayload && pendingMessage.iv
-        ? await decryptText(key, pendingMessage.encryptedPayload, pendingMessage.iv, `text:${pendingMessage.id}`)
-        : undefined;
+    // Decrypt failures here are permanent for a given ciphertext, so retrying
+    // forever just burns CPU every poll. Below the retry budget we rethrow
+    // (leave pending, retry next pass); past it the payload is dropped and the
+    // message registered as corrupted so it gets acked and stops coming back.
+    let corrupted = false;
+
+    let text: string | undefined;
+    if (pendingMessage.encryptedPayload && pendingMessage.iv) {
+      try {
+        text = await decryptText(key, pendingMessage.encryptedPayload, pendingMessage.iv, `text:${pendingMessage.id}`);
+        decryptAttempts.delete(`text:${pendingMessage.id}`);
+      } catch (error) {
+        if (!decryptBudgetExhausted(`text:${pendingMessage.id}`)) throw error;
+        corrupted = true;
+      }
+    }
 
     let file: FileRef | undefined;
     if (
@@ -138,19 +173,25 @@ async function registerIncoming(
       pendingMessage.fileMeta &&
       pendingMessage.fileMetaIv
     ) {
-      const meta = await decryptJson<FileMeta>(
-        key,
-        pendingMessage.fileMeta,
-        pendingMessage.fileMetaIv,
-        `meta:${pendingMessage.id}`,
-      );
-      file = {
-        r2Key: pendingMessage.fileR2Key,
-        iv: pendingMessage.fileIv,
-        name: meta.name,
-        size: meta.size,
-        mime: meta.mime,
-      };
+      try {
+        const meta = await decryptJson<FileMeta>(
+          key,
+          pendingMessage.fileMeta,
+          pendingMessage.fileMetaIv,
+          `meta:${pendingMessage.id}`,
+        );
+        file = {
+          r2Key: pendingMessage.fileR2Key,
+          iv: pendingMessage.fileIv,
+          name: meta.name,
+          size: meta.size,
+          mime: meta.mime,
+        };
+        decryptAttempts.delete(`meta:${pendingMessage.id}`);
+      } catch (error) {
+        if (!decryptBudgetExhausted(`meta:${pendingMessage.id}`)) throw error;
+        corrupted = true; // unusable metadata: the file is dropped with it
+      }
     }
 
     const senderDeviceName =
@@ -173,6 +214,7 @@ async function registerIncoming(
       createdAt: pendingMessage.createdAt,
       status: "sent",
       fileState: file ? "remote" : undefined,
+      corrupted: corrupted || undefined,
       acked: false,
     };
     await upsertMessage(local);
@@ -188,18 +230,55 @@ async function registerIncoming(
  */
 async function downloadAndAck(message: LocalMessage, key: CryptoKey, auth: Auth): Promise<void> {
   let local = message;
+  const file = local.file;
 
-  if (local.file && local.fileState !== "downloaded") {
+  if (file && needsDownload(local.fileState)) {
     await upsertMessage({ ...local, fileState: "downloading" });
+
+    let ciphertext: ArrayBuffer;
     try {
-      const ciphertext = await api.downloadFile(local.file.r2Key, auth);
-      const plaintext = await decryptFile(key, ciphertext, local.file.iv, `file:${local.id}`);
-      await putFile(local.file.r2Key, new Blob([plaintext], { type: local.file.mime }));
-      local = { ...local, fileState: "downloaded" };
-      await upsertMessage(local);
-    } catch {
-      await upsertMessage({ ...local, fileState: "error" });
-      return; // do not ack; retry next pass
+      ciphertext = await api.downloadFile(file.r2Key, auth);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "not_found") {
+        // The blob is gone server-side (TTL/cleanup) and will never come
+        // back; record that and fall through to the ack so the message
+        // stops being re-polled.
+        local = { ...local, fileState: "expired" };
+        await upsertMessage(local);
+      } else {
+        await upsertMessage({ ...local, fileState: "error" });
+        return; // transient (network/5xx): do not ack; retry next pass
+      }
+    }
+
+    if (local.fileState !== "expired") {
+      let plaintext: ArrayBuffer;
+      try {
+        plaintext = await decryptFile(key, ciphertext!, file.iv, `file:${local.id}`);
+        decryptAttempts.delete(`file:${local.id}`);
+      } catch (error) {
+        if (!decryptBudgetExhausted(`file:${local.id}`)) {
+          await upsertMessage({ ...local, fileState: "error" });
+          return; // do not ack; retry next pass
+        }
+        // Poisoned ciphertext: give up and fall through to the ack, so we
+        // stop re-downloading up to 50 MB on every poll until the TTL.
+        local = { ...local, fileState: "corrupted" };
+        await upsertMessage(local);
+      }
+
+      if (local.fileState !== "corrupted") {
+        try {
+          await putFile(file.r2Key, new Blob([plaintext!], { type: file.mime }));
+        } catch {
+          // Local storage failure (quota, …) is transient, unlike a decrypt
+          // failure — never spend the decrypt budget or ack on it.
+          await upsertMessage({ ...local, fileState: "error" });
+          return;
+        }
+        local = { ...local, fileState: "downloaded" };
+        await upsertMessage(local);
+      }
     }
   }
 
@@ -207,4 +286,9 @@ async function downloadAndAck(message: LocalMessage, key: CryptoKey, auth: Auth)
     await api.ackMessage(local.id, auth);
     await upsertMessage({ ...local, acked: true });
   }
+}
+
+/** File states that still want a download attempt on this pass. */
+function needsDownload(state: LocalMessage["fileState"]): boolean {
+  return state === "remote" || state === "downloading" || state === "error";
 }

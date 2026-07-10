@@ -16,15 +16,21 @@ export async function uploadFile(c: RouteContext): Promise<Response> {
   await rateLimit(c.env, "RL_UPLOAD", auth.deviceId);
   const key = requireId(c.params.r2key, "r2key");
 
+  // Content-Length is mandatory: without it (chunked transfer) the size cap
+  // could only be enforced *after* the whole body was consumed and stored,
+  // letting a hostile client burn bandwidth and R2 writes per request. Every
+  // legitimate client uploads a fully-buffered ciphertext, which always
+  // carries the header.
   const lengthHeader = c.request.headers.get("Content-Length");
-  if (lengthHeader) {
-    const length = Number(lengthHeader);
-    if (!Number.isFinite(length) || length <= 0) {
-      throw new ApiError("bad_request", "Invalid Content-Length");
-    }
-    if (length > MAX_UPLOAD_SIZE) {
-      throw new ApiError("payload_too_large", "File exceeds the 50 MB limit");
-    }
+  if (!lengthHeader) {
+    throw new ApiError("bad_request", "Missing Content-Length");
+  }
+  const length = Number(lengthHeader);
+  if (!Number.isFinite(length) || length <= 0) {
+    throw new ApiError("bad_request", "Invalid Content-Length");
+  }
+  if (length > MAX_UPLOAD_SIZE) {
+    throw new ApiError("payload_too_large", "File exceeds the 50 MB limit");
   }
   if (!c.request.body) {
     throw new ApiError("bad_request", "Empty request body");
@@ -35,8 +41,8 @@ export async function uploadFile(c: RouteContext): Promise<Response> {
     httpMetadata: { contentType: "application/octet-stream" },
   });
 
-  // Enforce the size cap even when Content-Length was absent or spoofed
-  // (e.g. a chunked upload): R2 reports the real stored size.
+  // Defense-in-depth: enforce the cap on the real stored size too, in case a
+  // client lied with a small Content-Length but streamed a bigger body.
   if (object.size > MAX_UPLOAD_SIZE) {
     await c.env.FILES.delete(storageKey);
     throw new ApiError("payload_too_large", "File exceeds the 50 MB limit");

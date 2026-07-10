@@ -11,7 +11,7 @@
  * as "already sent".
  */
 
-import { type Auth, ApiError, api } from "../api/client";
+import { type Auth, ApiError, NetworkError, api } from "../api/client";
 import {
   bufToBase64Url,
   encryptFile,
@@ -106,15 +106,18 @@ async function doFlush(notify?: NotifyUpdate): Promise<FlushResult> {
       // Re-read instead of reusing `message`: sendQueuedFile pins `file.iv`
       // mid-flight and that pin must survive into the retry (see above).
       const current = (await getMessage(message.id)) ?? message;
-      if (error instanceof ApiError && !isTransientError(error)) {
-        await update({ ...current, status: "failed" }, notify);
-        result.failed++;
-      } else {
+      if (isRetriable(error)) {
         // NetworkError or transient ApiError (rate_limited / internal): back to
         // "queued" for the next attempt. The "uploading" → "queued" reset also
         // keeps the UI honest while offline / being rate-limited.
         await update({ ...current, status: "queued" }, notify);
         result.remaining++;
+      } else {
+        // Permanent ApiError, or a local failure (encrypt threw, corrupt blob):
+        // retrying can't fix it, so surface it as "failed" (the bubble has a
+        // Retry button) instead of silently re-queueing it forever.
+        await update({ ...current, status: "failed" }, notify);
+        result.failed++;
       }
     }
   }
@@ -138,15 +141,23 @@ function isAlreadySent(error: unknown): boolean {
 }
 
 /**
- * A server `ApiError` that's worth retrying on the next pass instead of
- * marking the message permanently failed. `rate_limited` is the textbook
- * example: the server is explicitly telling us to back off, so the next
- * flush should pick the message up again. `internal` covers transient 5xx
- * where the call might succeed on retry; the alternative (marking failed)
- * would silently drop the user's queued send on a single bad request.
+ * Whether a flush failure is worth retrying on the next pass instead of
+ * marking the message permanently failed. A `NetworkError` obviously is.
+ * Among `ApiError`s, `rate_limited` is the textbook case: the server is
+ * explicitly telling us to back off; `internal` covers transient 5xx where
+ * the call might succeed on retry — the alternative (marking failed) would
+ * silently drop the user's queued send on a single bad request.
+ *
+ * Anything else — a permanent ApiError, or a *local* throw (encryptFile /
+ * encryptJson on a corrupt blob, IndexedDB read errors) — would fail
+ * identically on every future pass; re-queueing it would poison the outbox
+ * with an infinite retry loop.
  */
-function isTransientError(error: ApiError): boolean {
-  return error.code === "rate_limited" || error.code === "internal";
+function isRetriable(error: unknown): boolean {
+  if (error instanceof NetworkError) return true;
+  return (
+    error instanceof ApiError && (error.code === "rate_limited" || error.code === "internal")
+  );
 }
 
 async function sendQueuedText(

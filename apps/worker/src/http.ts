@@ -38,6 +38,15 @@ export function optionalString(value: unknown, field: string, maxLen = 4096): st
   return requireString(value, field, maxLen);
 }
 
+/** Validate a client-provided SHA-256 digest: exactly 64 lowercase hex chars. */
+export function requireSha256Hex(value: unknown, field: string): string {
+  const s = requireString(value, field, 64);
+  if (!/^[0-9a-f]{64}$/.test(s)) {
+    throw new ApiError("bad_request", `Invalid SHA-256 hex digest in field: ${field}`);
+  }
+  return s;
+}
+
 /**
  * Validate a client-provided opaque id (R2 keys, ids). Restricts to URL-safe
  * characters so it is always safe as a single path segment / object key.
