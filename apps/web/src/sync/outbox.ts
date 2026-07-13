@@ -42,6 +42,11 @@ export interface OutboxUpdateBroadcast {
   message: LocalMessage;
 }
 
+export interface FlushOptions {
+  /** Abort page-owned uploads during lifecycle handoff to the service worker. */
+  signal?: AbortSignal;
+}
+
 export interface FlushResult {
   /** Messages successfully handed to the server in this pass. */
   sent: number;
@@ -58,8 +63,7 @@ function isFlushable(message: LocalMessage): boolean {
   // "uploading" is included so an upload interrupted by a crash/kill is
   // retried on the next pass instead of being stuck forever.
   return (
-    message.direction === "out" &&
-    (message.status === "queued" || message.status === "uploading")
+    message.direction === "out" && (message.status === "queued" || message.status === "uploading")
   );
 }
 
@@ -68,16 +72,21 @@ function isFlushable(message: LocalMessage): boolean {
  * from the locally-cached original, so a failed send stays queued and is
  * retried on the next pass exactly like text.
  */
-export async function flushQueuedOutbox(notify?: NotifyUpdate): Promise<FlushResult> {
+export async function flushQueuedOutbox(
+  notify?: NotifyUpdate,
+  options: FlushOptions = {},
+): Promise<FlushResult> {
   // Web Locks exists in both window and worker scopes on every browser that
-  // has Background Sync; fall back to running unlocked elsewhere.
+  // has Background Sync; fall back to running unlocked elsewhere. The abort
+  // signal is intentionally checked inside the lock callback so a page that is
+  // being backgrounded can relinquish the lock quickly and let the SW retry.
   if (typeof navigator !== "undefined" && navigator.locks) {
-    return navigator.locks.request(OUTBOX_LOCK, () => doFlush(notify));
+    return navigator.locks.request(OUTBOX_LOCK, () => doFlush(notify, options));
   }
-  return doFlush(notify);
+  return doFlush(notify, options);
 }
 
-async function doFlush(notify?: NotifyUpdate): Promise<FlushResult> {
+async function doFlush(notify?: NotifyUpdate, options: FlushOptions = {}): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, failed: 0, remaining: 0 };
 
   const [session, key] = await Promise.all([
@@ -89,13 +98,14 @@ async function doFlush(notify?: NotifyUpdate): Promise<FlushResult> {
 
   const queued = (await allMessages()).filter(isFlushable);
   for (const stale of queued) {
+    options.signal?.throwIfAborted();
     // Re-read: another context may have flushed this entry meanwhile.
     const message = await getMessage(stale.id);
     if (!message || !isFlushable(message)) continue;
 
     try {
       if (message.file) {
-        await sendQueuedFile(message, key, auth, notify);
+        await sendQueuedFile(message, key, auth, notify, options.signal);
       } else if (message.text !== undefined) {
         await sendQueuedText(message, key, auth, notify);
       } else {
@@ -154,10 +164,9 @@ function isAlreadySent(error: unknown): boolean {
  * with an infinite retry loop.
  */
 function isRetriable(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
   if (error instanceof NetworkError) return true;
-  return (
-    error instanceof ApiError && (error.code === "rate_limited" || error.code === "internal")
-  );
+  return error instanceof ApiError && (error.code === "rate_limited" || error.code === "internal");
 }
 
 async function sendQueuedText(
@@ -183,6 +192,7 @@ async function sendQueuedFile(
   key: CryptoKey,
   auth: Auth,
   notify?: NotifyUpdate,
+  signal?: AbortSignal,
 ): Promise<void> {
   let file = message.file!;
   const blob = await getFile(file.r2Key);
@@ -200,7 +210,8 @@ async function sendQueuedFile(
   await update({ ...message, file, status: "uploading" }, notify);
 
   const encrypted = await encryptFile(key, await blob.arrayBuffer(), `file:${message.id}`, file.iv);
-  await api.uploadFile(file.r2Key, encrypted.ciphertext, auth);
+  signal?.throwIfAborted();
+  await api.uploadFile(file.r2Key, encrypted.ciphertext, auth, signal);
   const meta = await encryptJson(
     key,
     { name: file.name, size: file.size, mime: file.mime },

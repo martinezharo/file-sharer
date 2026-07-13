@@ -44,6 +44,7 @@ interface RequestOptions {
   rawBody?: BodyInit;
   headers?: Record<string, string>;
   retries?: number;
+  signal?: AbortSignal;
 }
 
 async function rawRequest(method: string, path: string, opts: RequestOptions): Promise<Response> {
@@ -65,8 +66,14 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    opts.signal?.throwIfAborted();
     try {
-      const response = await fetch(`${BASE}${path}`, { method, headers, body });
+      const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers,
+        body,
+        signal: opts.signal,
+      });
       // Retry transient server errors with backoff.
       if (response.status >= 500 && attempt < maxAttempts - 1) {
         await delay(250 * 2 ** attempt);
@@ -78,6 +85,7 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
       return response;
     } catch (err) {
       if (err instanceof ApiError) throw err;
+      if (opts.signal?.aborted) throw err;
       // Network failure: back off and retry.
       lastError = err;
       if (attempt < maxAttempts - 1) {
@@ -85,9 +93,7 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
       }
     }
   }
-  throw new NetworkError(
-    lastError instanceof Error ? lastError.message : "Network request failed",
-  );
+  throw new NetworkError(lastError instanceof Error ? lastError.message : "Network request failed");
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -149,8 +155,13 @@ export const api = {
     return jsonRequest("POST", `/messages/${id}/ack`, { auth });
   },
 
-  async uploadFile(r2Key: string, ciphertext: ArrayBuffer, auth: Auth): Promise<void> {
-    await rawRequest("PUT", `/files/${r2Key}`, { rawBody: ciphertext, auth });
+  async uploadFile(
+    r2Key: string,
+    ciphertext: ArrayBuffer,
+    auth: Auth,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await rawRequest("PUT", `/files/${r2Key}`, { rawBody: ciphertext, auth, signal });
   },
 
   async downloadFile(r2Key: string, auth: Auth): Promise<ArrayBuffer> {

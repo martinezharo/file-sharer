@@ -46,7 +46,20 @@ function decryptBudgetExhausted(scope: string): boolean {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let activePageFlush: AbortController | null = null;
 const onFocus = (): void => void syncNow();
+
+function handOffOutboxToServiceWorker(): void {
+  // Mobile browsers aggressively freeze/kill hidden pages. Abort any
+  // page-owned upload before the OS suspends us, then ask the service worker
+  // to finish from IndexedDB via Background Sync.
+  activePageFlush?.abort();
+  void requestBackgroundSync();
+}
+
+const onVisibilityChange = (): void => {
+  if (document.visibilityState === "hidden") handOffOutboxToServiceWorker();
+};
 
 export function startSync(): void {
   stopSync();
@@ -54,6 +67,8 @@ export function startSync(): void {
   timer = setInterval(() => void syncNow(), POLL_INTERVAL_MS);
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onFocus);
+  window.addEventListener("pagehide", handOffOutboxToServiceWorker);
+  document.addEventListener("visibilitychange", onVisibilityChange);
 }
 
 export function stopSync(): void {
@@ -61,6 +76,10 @@ export function stopSync(): void {
   timer = null;
   window.removeEventListener("focus", onFocus);
   window.removeEventListener("online", onFocus);
+  window.removeEventListener("pagehide", handOffOutboxToServiceWorker);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+  activePageFlush?.abort();
+  activePageFlush = null;
 }
 
 /** Run one sync pass, skipping if one is already in flight. */
@@ -76,7 +95,9 @@ export async function syncNow(): Promise<void> {
 
     // Outbox flush is shared with the service worker (sync/outbox.ts); it
     // persists every state change itself, so only the signal needs updating.
-    const flushed = await flushQueuedOutbox(applyMessageUpdate);
+    const pageFlush = new AbortController();
+    activePageFlush = pageFlush;
+    const flushed = await flushQueuedOutbox(applyMessageUpdate, { signal: pageFlush.signal });
     if (flushed.remaining > 0) {
       // Couldn't send everything (offline/flaky network): let the browser
       // retry from the service worker even if the app gets closed.
@@ -107,6 +128,7 @@ export async function syncNow(): Promise<void> {
   } catch {
     // Network/transient errors are silently retried on the next tick.
   } finally {
+    activePageFlush = null;
     running = false;
   }
 }
@@ -158,7 +180,12 @@ async function registerIncoming(
     let text: string | undefined;
     if (pendingMessage.encryptedPayload && pendingMessage.iv) {
       try {
-        text = await decryptText(key, pendingMessage.encryptedPayload, pendingMessage.iv, `text:${pendingMessage.id}`);
+        text = await decryptText(
+          key,
+          pendingMessage.encryptedPayload,
+          pendingMessage.iv,
+          `text:${pendingMessage.id}`,
+        );
         decryptAttempts.delete(`text:${pendingMessage.id}`);
       } catch (error) {
         if (!decryptBudgetExhausted(`text:${pendingMessage.id}`)) throw error;
