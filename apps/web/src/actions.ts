@@ -284,9 +284,6 @@ export async function sendFileMessage(file: File): Promise<boolean> {
   return true;
 }
 
-/** Shown at most once per app load — no need to repeat it for every file. */
-let backgroundUploadHintShown = false;
-
 export async function sendFileMessages(files: readonly File[]): Promise<void> {
   // Commit the complete selection before starting any upload. Previously each
   // file kicked the sync loop immediately, so the first upload could be frozen
@@ -302,9 +299,6 @@ export async function sendFileMessages(files: readonly File[]): Promise<void> {
         ? "You're offline — uploads will continue in the background once you reconnect"
         : "You're offline — uploads will resume when you're back online (keep the app open)",
     );
-  } else if (backgroundSyncSupported() && !backgroundUploadHintShown) {
-    backgroundUploadHintShown = true;
-    showToast("Uploading — feel free to close the app, it will finish in the background");
   }
 }
 
