@@ -32,6 +32,8 @@ import type { LocalMessage, Session } from "../types";
 
 /** Background Sync tag registered by the page and handled by the SW. */
 export const OUTBOX_SYNC_TAG = "file-sharer-outbox";
+/** Message used for an immediate SW handoff (also works without Background Sync). */
+export const OUTBOX_FLUSH_MESSAGE = "file-sharer-flush-outbox";
 
 /** Cross-context lock name serializing outbox flushes (page ↔ SW). */
 const OUTBOX_LOCK = "file-sharer-outbox";
@@ -42,11 +44,6 @@ export interface OutboxUpdateBroadcast {
   message: LocalMessage;
 }
 
-export interface FlushOptions {
-  /** Abort page-owned uploads during lifecycle handoff to the service worker. */
-  signal?: AbortSignal;
-}
-
 export interface FlushResult {
   /** Messages successfully handed to the server in this pass. */
   sent: number;
@@ -54,6 +51,13 @@ export interface FlushResult {
   failed: number;
   /** Messages still queued (transient/network errors) — retry later. */
   remaining: number;
+}
+
+export interface FlushOptions {
+  /** Cancel page-owned network work when its lifecycle is about to be frozen. */
+  signal?: AbortSignal;
+  /** Bound a worker pass so a large batch is split into resumable chunks. */
+  maxMessages?: number;
 }
 
 /** Called after each persisted state change so live UIs can update. */
@@ -81,12 +85,14 @@ export async function flushQueuedOutbox(
   // signal is intentionally checked inside the lock callback so a page that is
   // being backgrounded can relinquish the lock quickly and let the SW retry.
   if (typeof navigator !== "undefined" && navigator.locks) {
-    return navigator.locks.request(OUTBOX_LOCK, () => doFlush(notify, options));
+    return navigator.locks.request(OUTBOX_LOCK, { signal: options.signal }, () =>
+      doFlush(notify, options),
+    );
   }
   return doFlush(notify, options);
 }
 
-async function doFlush(notify?: NotifyUpdate, options: FlushOptions = {}): Promise<FlushResult> {
+async function doFlush(notify: NotifyUpdate | undefined, options: FlushOptions): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, failed: 0, remaining: 0 };
 
   const [session, key] = await Promise.all([
@@ -96,9 +102,11 @@ async function doFlush(notify?: NotifyUpdate, options: FlushOptions = {}): Promi
   if (!session || !key) return result;
   const auth: Auth = { token: session.groupAuthToken, deviceId: session.deviceId };
 
-  const queued = (await allMessages()).filter(isFlushable);
+  const queued = (await allMessages())
+    .filter(isFlushable)
+    .slice(0, options.maxMessages ?? Number.POSITIVE_INFINITY);
   for (const stale of queued) {
-    options.signal?.throwIfAborted();
+    if (options.signal?.aborted) break;
     // Re-read: another context may have flushed this entry meanwhile.
     const message = await getMessage(stale.id);
     if (!message || !isFlushable(message)) continue;
@@ -107,7 +115,7 @@ async function doFlush(notify?: NotifyUpdate, options: FlushOptions = {}): Promi
       if (message.file) {
         await sendQueuedFile(message, key, auth, notify, options.signal);
       } else if (message.text !== undefined) {
-        await sendQueuedText(message, key, auth, notify);
+        await sendQueuedText(message, key, auth, notify, options.signal);
       } else {
         continue;
       }
@@ -116,7 +124,7 @@ async function doFlush(notify?: NotifyUpdate, options: FlushOptions = {}): Promi
       // Re-read instead of reusing `message`: sendQueuedFile pins `file.iv`
       // mid-flight and that pin must survive into the retry (see above).
       const current = (await getMessage(message.id)) ?? message;
-      if (isRetriable(error)) {
+      if (isRetriable(error) || options.signal?.aborted) {
         // NetworkError or transient ApiError (rate_limited / internal): back to
         // "queued" for the next attempt. The "uploading" → "queued" reset also
         // keeps the UI honest while offline / being rate-limited.
@@ -129,8 +137,14 @@ async function doFlush(notify?: NotifyUpdate, options: FlushOptions = {}): Promi
         await update({ ...current, status: "failed" }, notify);
         result.failed++;
       }
+      // Once lifecycle cancellation happens, release the lock promptly. The
+      // worker will resume from this item; do not start another page upload.
+      if (options.signal?.aborted) break;
     }
   }
+  // Count the persisted queue, including items outside this bounded pass and
+  // files added while it was running. This drives reliable follow-up syncs.
+  result.remaining = (await allMessages()).filter(isFlushable).length;
   return result;
 }
 
@@ -164,7 +178,7 @@ function isAlreadySent(error: unknown): boolean {
  * with an infinite retry loop.
  */
 function isRetriable(error: unknown): boolean {
-  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
   if (error instanceof NetworkError) return true;
   return error instanceof ApiError && (error.code === "rate_limited" || error.code === "internal");
 }
@@ -174,12 +188,16 @@ async function sendQueuedText(
   key: CryptoKey,
   auth: Auth,
   notify?: NotifyUpdate,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const encrypted = await encryptText(key, message.text!, `text:${message.id}`);
+  signal?.throwIfAborted();
   try {
     await api.sendMessage(
       { id: message.id, encryptedPayload: encrypted.ciphertext, iv: encrypted.iv },
       auth,
+      signal,
     );
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
@@ -198,8 +216,7 @@ async function sendQueuedFile(
   const blob = await getFile(file.r2Key);
   if (!blob) {
     // The local original is gone; we can never re-upload it.
-    await update({ ...message, status: "failed" }, notify);
-    return;
+    throw new Error("Local upload source is missing");
   }
 
   // Pin the file IV *before* uploading and reuse it on retries: with the same
@@ -209,9 +226,11 @@ async function sendQueuedFile(
   if (!file.iv) file = { ...file, iv: bufToBase64Url(randomBytes(12)) };
   await update({ ...message, file, status: "uploading" }, notify);
 
+  signal?.throwIfAborted();
   const encrypted = await encryptFile(key, await blob.arrayBuffer(), `file:${message.id}`, file.iv);
   signal?.throwIfAborted();
   await api.uploadFile(file.r2Key, encrypted.ciphertext, auth, signal);
+  signal?.throwIfAborted();
   const meta = await encryptJson(
     key,
     { name: file.name, size: file.size, mime: file.mime },
@@ -227,6 +246,7 @@ async function sendQueuedFile(
         fileMetaIv: meta.iv,
       },
       auth,
+      signal,
     );
   } catch (error) {
     if (!isAlreadySent(error)) throw error;

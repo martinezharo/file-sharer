@@ -76,7 +76,7 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
       });
       // Retry transient server errors with backoff.
       if (response.status >= 500 && attempt < maxAttempts - 1) {
-        await delay(250 * 2 ** attempt);
+        await delay(250 * 2 ** attempt, opts.signal);
         continue;
       }
       if (!response.ok) {
@@ -84,12 +84,14 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
       }
       return response;
     } catch (err) {
-      if (err instanceof ApiError) throw err;
+      // A lifecycle handoff deliberately aborts the page request so the
+      // service worker can take over. Do not hide that behind retries/backoff.
       if (opts.signal?.aborted) throw err;
+      if (err instanceof ApiError) throw err;
       // Network failure: back off and retry.
       lastError = err;
       if (attempt < maxAttempts - 1) {
-        await delay(250 * 2 ** attempt);
+        await delay(250 * 2 ** attempt, opts.signal);
       }
     }
   }
@@ -111,8 +113,22 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, code, message);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function jsonRequest<T>(method: string, path: string, opts: RequestOptions): Promise<T> {
@@ -143,8 +159,8 @@ export const api = {
     await rawRequest("DELETE", `/pairing/${pairingId}`, { retries: 0 });
   },
 
-  sendMessage(body: SendMessageRequest, auth: Auth): Promise<void> {
-    return jsonRequest("POST", "/messages", { jsonBody: body, auth });
+  sendMessage(body: SendMessageRequest, auth: Auth, signal?: AbortSignal): Promise<void> {
+    return jsonRequest("POST", "/messages", { jsonBody: body, auth, signal });
   },
 
   pendingMessages(auth: Auth, since = 0): Promise<PendingMessagesResponse> {

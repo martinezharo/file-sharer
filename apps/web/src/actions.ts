@@ -16,8 +16,15 @@ import {
   unwrapPairingPackage,
   wrapPairingPackage,
 } from "./crypto/crypto";
-import { deleteFile, getFile, metaDelete, metaGet, metaSet, putFile } from "./db/store";
-import { loadMessages, removeMessage, upsertMessage } from "./state/messages";
+import {
+  deleteFile,
+  getFile,
+  metaDelete,
+  metaGet,
+  metaSet,
+  putOutgoingFileMessages,
+} from "./db/store";
+import { applyMessageUpdate, loadMessages, removeMessage, upsertMessage } from "./state/messages";
 import { authHeaders, groupKey, persistSession, resetSession, session } from "./state/session";
 import { showToast, view } from "./state/ui";
 import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
@@ -271,38 +278,8 @@ export async function sendTextMessage(text: string): Promise<void> {
 
 /** Queue one file for sending. Returns false if it was rejected (too large). */
 export async function sendFileMessage(file: File): Promise<boolean> {
-  const currentSession = session.value;
-  const currentGroupKey = groupKey.value;
-  if (!currentSession || !currentGroupKey) return false;
-
-  if (file.size > MAX_FILE_SIZE) {
-    showToast(`File is too large (max ${Math.floor(MAX_FILE_SIZE / 1024 / 1024)} MB)`, "error");
-    return false;
-  }
-
-  const r2Key = randomId();
-  const fileRef: FileRef = {
-    r2Key,
-    iv: "",
-    name: file.name,
-    size: file.size,
-    mime: file.type || "application/octet-stream",
-  };
-  const message: LocalMessage = {
-    id: randomId(),
-    direction: "out",
-    senderDeviceId: currentSession.deviceId,
-    senderDeviceName: currentSession.deviceName,
-    file: fileRef,
-    createdAt: Date.now(),
-    status: "queued",
-    fileState: "downloaded", // the sender already holds the file
-  };
-
-  // Cache the original locally, then let the sync engine encrypt + upload + send
-  // (and retry on failure) exactly like a text message.
-  await putFile(r2Key, file);
-  await upsertMessage(message);
+  const queued = await queueFileMessages([file]);
+  if (queued === 0) return false;
   scheduleOutboxFlush();
   return true;
 }
@@ -311,11 +288,12 @@ export async function sendFileMessage(file: File): Promise<boolean> {
 let backgroundUploadHintShown = false;
 
 export async function sendFileMessages(files: readonly File[]): Promise<void> {
-  let queued = 0;
-  for (const file of files) {
-    if (await sendFileMessage(file)) queued++;
-  }
+  // Commit the complete selection before starting any upload. Previously each
+  // file kicked the sync loop immediately, so the first upload could be frozen
+  // while the rest of the selection had not even joined the outbox yet.
+  const queued = await queueFileMessages(files);
   if (queued === 0) return;
+  scheduleOutboxFlush();
 
   // Tell the user what will happen to their upload(s) beyond this screen.
   if (!navigator.onLine) {
@@ -328,6 +306,48 @@ export async function sendFileMessages(files: readonly File[]): Promise<void> {
     backgroundUploadHintShown = true;
     showToast("Uploading — feel free to close the app, it will finish in the background");
   }
+}
+
+async function queueFileMessages(files: readonly File[]): Promise<number> {
+  const currentSession = session.value;
+  if (!currentSession || !groupKey.value) return 0;
+
+  const accepted = files.filter((file) => file.size <= MAX_FILE_SIZE);
+  if (accepted.length !== files.length) {
+    const rejected = files.length - accepted.length;
+    showToast(
+      `${rejected === 1 ? "1 file is" : `${rejected} files are`} too large (max ${Math.floor(MAX_FILE_SIZE / 1024 / 1024)} MB)`,
+      "error",
+    );
+  }
+  if (accepted.length === 0) return 0;
+
+  const createdAt = Date.now();
+  const entries = accepted.map((file, index) => {
+    const r2Key = randomId();
+    const fileRef: FileRef = {
+      r2Key,
+      iv: "",
+      name: file.name,
+      size: file.size,
+      mime: file.type || "application/octet-stream",
+    };
+    const message: LocalMessage = {
+      id: randomId(),
+      direction: "out",
+      senderDeviceId: currentSession.deviceId,
+      senderDeviceName: currentSession.deviceName,
+      file: fileRef,
+      createdAt: createdAt + index,
+      status: "queued",
+      fileState: "downloaded",
+    };
+    return { message, blob: file };
+  });
+
+  await putOutgoingFileMessages(entries);
+  for (const { message } of entries) applyMessageUpdate(message);
+  return entries.length;
 }
 
 /** Re-queue a failed outgoing message and try again. */

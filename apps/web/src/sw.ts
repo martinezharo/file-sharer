@@ -21,7 +21,12 @@ import {
   type PrecacheEntry,
 } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
-import { OUTBOX_SYNC_TAG, type OutboxUpdateBroadcast, flushQueuedOutbox } from "./sync/outbox";
+import {
+  OUTBOX_FLUSH_MESSAGE,
+  OUTBOX_SYNC_TAG,
+  type OutboxUpdateBroadcast,
+  flushQueuedOutbox,
+} from "./sync/outbox";
 import { handleShareTarget } from "./sw/share-target";
 import type { LocalMessage } from "./types";
 
@@ -64,11 +69,51 @@ self.addEventListener("sync", ((event: SyncEvent) => {
   event.waitUntil(flushOutboxInBackground(event.lastChance));
 }) as EventListener);
 
-async function flushOutboxInBackground(lastChance: boolean): Promise<void> {
-  const result = await flushQueuedOutbox((message) => void broadcastUpdate(message));
-  if (result.remaining > 0 && !lastChance) {
-    // Rejecting waitUntil makes the browser re-fire this sync with backoff.
-    throw new Error(`Outbox not fully flushed (${result.remaining} left)`);
+self.addEventListener("message", (event) => {
+  const data = event.data as { type?: string } | null;
+  if (data?.type !== OUTBOX_FLUSH_MESSAGE) return;
+  // ExtendableMessageEvent.waitUntil keeps this worker alive after the page is
+  // suspended. On browsers without Background Sync (notably iOS/Safari), drain
+  // successive chunks inside this one best-effort lifecycle event.
+  event.waitUntil(flushOutboxInBackground(false, true));
+});
+
+async function flushOutboxInBackground(
+  lastChance: boolean,
+  drainWithoutBackgroundSync = false,
+): Promise<void> {
+  while (true) {
+    // One file per pass keeps a multi-file selection resumable. With Background
+    // Sync each successful pass registers the next; without it, the direct
+    // message handoff continues here while the browser lets the worker live.
+    const result = await flushQueuedOutbox((message) => void broadcastUpdate(message), {
+      maxMessages: 1,
+    });
+    if (result.remaining === 0) return;
+
+    const madeProgress = result.sent + result.failed > 0;
+    if (madeProgress && (await registerNextOutboxSync())) return;
+    if (madeProgress && drainWithoutBackgroundSync) continue;
+    if (!lastChance) {
+      // Rejecting waitUntil makes supporting browsers retry with backoff.
+      throw new Error(`Outbox not fully flushed (${result.remaining} left)`);
+    }
+    return;
+  }
+}
+
+interface SyncCapableRegistration extends ServiceWorkerRegistration {
+  sync?: { register(tag: string): Promise<void> };
+}
+
+async function registerNextOutboxSync(): Promise<boolean> {
+  try {
+    const registration = self.registration as SyncCapableRegistration;
+    if (!registration.sync) return false;
+    await registration.sync.register(OUTBOX_SYNC_TAG);
+    return true;
+  } catch {
+    return false;
   }
 }
 

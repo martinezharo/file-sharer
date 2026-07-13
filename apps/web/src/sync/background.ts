@@ -8,7 +8,7 @@
  * while the app stays open.
  */
 
-import { OUTBOX_SYNC_TAG } from "./outbox";
+import { OUTBOX_FLUSH_MESSAGE, OUTBOX_SYNC_TAG } from "./outbox";
 
 // Background Sync is not in the standard TS DOM lib yet.
 interface SyncManager {
@@ -35,6 +35,22 @@ export async function requestBackgroundSync(): Promise<boolean> {
       | undefined;
     if (!registration?.sync) return false;
     await registration.sync.register(OUTBOX_SYNC_TAG);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hand the outbox directly to the active service worker before the page is
+ * frozen. Unlike Background Sync this path is available on Safari/iOS too;
+ * the worker keeps its message event alive while it drains what it can.
+ */
+export function requestImmediateWorkerFlush(): boolean {
+  try {
+    const worker = navigator.serviceWorker?.controller;
+    if (!worker) return false;
+    worker.postMessage({ type: OUTBOX_FLUSH_MESSAGE });
     return true;
   } catch {
     return false;
