@@ -61,6 +61,26 @@ export async function putMessage(message: LocalMessage): Promise<void> {
   await (await db()).put("messages", message);
 }
 
+/**
+ * Persist a batch of outgoing file messages and their source blobs atomically.
+ * A mobile suspension can therefore never leave half a selected batch queued,
+ * or a message whose upload source was not committed yet.
+ */
+export async function putOutgoingFileMessages(
+  entries: readonly { message: LocalMessage; blob: Blob }[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const database = await db();
+  const transaction = database.transaction(["messages", "files"], "readwrite");
+  await Promise.all([
+    ...entries.map(({ message }) => transaction.objectStore("messages").put(message)),
+    ...entries.map(({ message, blob }) =>
+      transaction.objectStore("files").put({ r2Key: message.file!.r2Key, blob }),
+    ),
+    transaction.done,
+  ]);
+}
+
 export async function getMessage(id: string): Promise<LocalMessage | undefined> {
   return (await db()).get("messages", id);
 }

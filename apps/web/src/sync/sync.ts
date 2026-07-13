@@ -5,7 +5,7 @@ import { decryptFile, decryptJson, decryptName, decryptText } from "../crypto/cr
 import { applyMessageUpdate, getLocalMessage, upsertMessage } from "../state/messages";
 import { authHeaders, groupKey, session } from "../state/session";
 import type { FileRef, LocalMessage } from "../types";
-import { requestBackgroundSync } from "./background";
+import { requestBackgroundSync, requestImmediateWorkerFlush } from "./background";
 import { flushQueuedOutbox, type OutboxUpdateBroadcast } from "./outbox";
 
 interface FileMeta {
@@ -46,7 +46,21 @@ function decryptBudgetExhausted(scope: string): boolean {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+let outboxAbortController: AbortController | null = null;
 const onFocus = (): void => void syncNow();
+const onVisibilityChange = (): void => {
+  if (document.visibilityState === "hidden") handOffOutboxToServiceWorker();
+};
+const onPageHide = (): void => handOffOutboxToServiceWorker();
+
+function handOffOutboxToServiceWorker(): void {
+  // Abort fetch + its retry delays, then register Background Sync. Once the
+  // page releases the cross-context lock, the service worker resumes the same
+  // persisted item (and the rest of the batch) from IndexedDB.
+  outboxAbortController?.abort();
+  requestImmediateWorkerFlush();
+  void requestBackgroundSync();
+}
 
 export function startSync(): void {
   stopSync();
@@ -54,6 +68,8 @@ export function startSync(): void {
   timer = setInterval(() => void syncNow(), POLL_INTERVAL_MS);
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onFocus);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  window.addEventListener("pagehide", onPageHide);
 }
 
 export function stopSync(): void {
@@ -61,6 +77,10 @@ export function stopSync(): void {
   timer = null;
   window.removeEventListener("focus", onFocus);
   window.removeEventListener("online", onFocus);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+  window.removeEventListener("pagehide", onPageHide);
+  outboxAbortController?.abort();
+  outboxAbortController = null;
 }
 
 /** Run one sync pass, skipping if one is already in flight. */
@@ -76,7 +96,10 @@ export async function syncNow(): Promise<void> {
 
     // Outbox flush is shared with the service worker (sync/outbox.ts); it
     // persists every state change itself, so only the signal needs updating.
-    const flushed = await flushQueuedOutbox(applyMessageUpdate);
+    const controller = new AbortController();
+    outboxAbortController = controller;
+    const flushed = await flushQueuedOutbox(applyMessageUpdate, { signal: controller.signal });
+    if (outboxAbortController === controller) outboxAbortController = null;
     if (flushed.remaining > 0) {
       // Couldn't send everything (offline/flaky network): let the browser
       // retry from the service worker even if the app gets closed.
@@ -107,6 +130,7 @@ export async function syncNow(): Promise<void> {
   } catch {
     // Network/transient errors are silently retried on the next tick.
   } finally {
+    outboxAbortController = null;
     running = false;
   }
 }
@@ -158,7 +182,12 @@ async function registerIncoming(
     let text: string | undefined;
     if (pendingMessage.encryptedPayload && pendingMessage.iv) {
       try {
-        text = await decryptText(key, pendingMessage.encryptedPayload, pendingMessage.iv, `text:${pendingMessage.id}`);
+        text = await decryptText(
+          key,
+          pendingMessage.encryptedPayload,
+          pendingMessage.iv,
+          `text:${pendingMessage.id}`,
+        );
         decryptAttempts.delete(`text:${pendingMessage.id}`);
       } catch (error) {
         if (!decryptBudgetExhausted(`text:${pendingMessage.id}`)) throw error;

@@ -44,6 +44,7 @@ interface RequestOptions {
   rawBody?: BodyInit;
   headers?: Record<string, string>;
   retries?: number;
+  signal?: AbortSignal;
 }
 
 async function rawRequest(method: string, path: string, opts: RequestOptions): Promise<Response> {
@@ -65,11 +66,17 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
   let lastError: unknown;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    opts.signal?.throwIfAborted();
     try {
-      const response = await fetch(`${BASE}${path}`, { method, headers, body });
+      const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers,
+        body,
+        signal: opts.signal,
+      });
       // Retry transient server errors with backoff.
       if (response.status >= 500 && attempt < maxAttempts - 1) {
-        await delay(250 * 2 ** attempt);
+        await delay(250 * 2 ** attempt, opts.signal);
         continue;
       }
       if (!response.ok) {
@@ -77,17 +84,18 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
       }
       return response;
     } catch (err) {
+      // A lifecycle handoff deliberately aborts the page request so the
+      // service worker can take over. Do not hide that behind retries/backoff.
+      if (opts.signal?.aborted) throw err;
       if (err instanceof ApiError) throw err;
       // Network failure: back off and retry.
       lastError = err;
       if (attempt < maxAttempts - 1) {
-        await delay(250 * 2 ** attempt);
+        await delay(250 * 2 ** attempt, opts.signal);
       }
     }
   }
-  throw new NetworkError(
-    lastError instanceof Error ? lastError.message : "Network request failed",
-  );
+  throw new NetworkError(lastError instanceof Error ? lastError.message : "Network request failed");
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -105,8 +113,22 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, code, message);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function jsonRequest<T>(method: string, path: string, opts: RequestOptions): Promise<T> {
@@ -137,8 +159,8 @@ export const api = {
     await rawRequest("DELETE", `/pairing/${pairingId}`, { retries: 0 });
   },
 
-  sendMessage(body: SendMessageRequest, auth: Auth): Promise<void> {
-    return jsonRequest("POST", "/messages", { jsonBody: body, auth });
+  sendMessage(body: SendMessageRequest, auth: Auth, signal?: AbortSignal): Promise<void> {
+    return jsonRequest("POST", "/messages", { jsonBody: body, auth, signal });
   },
 
   pendingMessages(auth: Auth, since = 0): Promise<PendingMessagesResponse> {
@@ -149,8 +171,13 @@ export const api = {
     return jsonRequest("POST", `/messages/${id}/ack`, { auth });
   },
 
-  async uploadFile(r2Key: string, ciphertext: ArrayBuffer, auth: Auth): Promise<void> {
-    await rawRequest("PUT", `/files/${r2Key}`, { rawBody: ciphertext, auth });
+  async uploadFile(
+    r2Key: string,
+    ciphertext: ArrayBuffer,
+    auth: Auth,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await rawRequest("PUT", `/files/${r2Key}`, { rawBody: ciphertext, auth, signal });
   },
 
   async downloadFile(r2Key: string, auth: Auth): Promise<ArrayBuffer> {
