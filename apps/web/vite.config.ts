@@ -22,7 +22,7 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,svg,woff2}"],
       },
       includeAssets: [
-        "icon.svg",
+        "favicon.svg",
         "icon-maskable.svg",
         "icon-192.png",
         "icon-512.png",
@@ -46,7 +46,7 @@ export default defineConfig({
           { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
           { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
           { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-          { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+          { src: "/favicon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "/icon-maskable.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" },
         ],
         // Let the OS share sheet send text & files to this installed PWA. The
