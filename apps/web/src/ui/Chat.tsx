@@ -27,6 +27,7 @@ import {
   sendTextMessage,
 } from "../actions";
 import { getFile } from "../db/store";
+import { getClipboardImages } from "../share/clipboard";
 import { messages } from "../state/messages";
 import { session } from "../state/session";
 import { composerDraft } from "../state/ui";
@@ -549,6 +550,14 @@ function Composer(): JSX.Element {
     input.value = "";
   }
 
+  function onPaste(event: JSX.TargetedClipboardEvent<HTMLTextAreaElement>): void {
+    const images = getClipboardImages(event.clipboardData);
+    if (images.length === 0) return;
+
+    event.preventDefault();
+    void sendFileMessages(images);
+  }
+
   const canSend = !!text.trim();
 
   return (
@@ -570,6 +579,7 @@ function Composer(): JSX.Element {
           placeholder="Write a message"
           value={text}
           rows={1}
+          onPaste={onPaste}
           onInput={(e) => {
             setText((e.target as HTMLTextAreaElement).value);
             autosize();
