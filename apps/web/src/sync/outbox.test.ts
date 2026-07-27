@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({
     groupId: "group",
     deviceId: "device",
     deviceName: "Phone",
-    groupAuthToken: "token",
+    deviceAuthToken: "token",
   } satisfies Session,
   key: {} as CryptoKey,
   uploadFile: vi.fn(),

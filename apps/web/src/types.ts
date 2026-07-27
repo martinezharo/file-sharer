@@ -4,8 +4,8 @@ export interface Session {
   groupId: string;
   deviceId: string;
   deviceName: string;
-  /** Bearer token proving group membership. Stored locally only. */
-  groupAuthToken: string;
+  /** Bearer token identifying this device. Stored locally only. */
+  deviceAuthToken: string;
 }
 
 /** Decrypted reference to a file attachment. */

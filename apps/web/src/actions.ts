@@ -56,13 +56,13 @@ export async function createSpace(deviceName: string): Promise<void> {
 
   await api.createGroup({
     groupId,
-    authTokenHash: await sha256Hex(token),
+    deviceAuthTokenHash: await sha256Hex(token),
     device: { id: deviceId, publicKey },
     encryptedName: name.ciphertext,
     nameIv: name.iv,
   });
 
-  const newSession: Session = { groupId, deviceId, deviceName, groupAuthToken: token };
+  const newSession: Session = { groupId, deviceId, deviceName, deviceAuthToken: token };
   await persistSession(newSession, newGroupKey, keyPair);
   await loadMessages();
   startSync();
@@ -108,7 +108,11 @@ export async function resumeLinking(): Promise<void> {
   startLinkPolling(pending.payload.pairingId, pending.keyPair, pending.payload);
 }
 
-function startLinkPolling(pairingId: string, keyPair: CryptoKeyPair, payload: PairingQrPayload): void {
+function startLinkPolling(
+  pairingId: string,
+  keyPair: CryptoKeyPair,
+  payload: PairingQrPayload,
+): void {
   stopLinkPolling();
   linkTimer = setInterval(() => void pollLink(pairingId, keyPair, payload), 2500);
 }
@@ -139,7 +143,7 @@ async function pollLink(
       groupId: recovered.groupId,
       deviceId: payload.deviceId,
       deviceName: payload.deviceName,
-      groupAuthToken: recovered.groupAuthToken,
+      deviceAuthToken: recovered.deviceAuthToken,
     };
     await persistSession(newSession, recoveredGroupKey, keyPair);
     await metaDelete("pendingPairing");
@@ -189,11 +193,12 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
   }
 
   const recipientPublicKey = await importPublicKey(payload.publicKey);
+  const deviceAuthToken = randomToken();
   const wrapped = await wrapPairingPackage(
     recipientPublicKey,
     {
       groupKey: await exportGroupKey(currentGroupKey),
-      groupAuthToken: currentSession.groupAuthToken,
+      deviceAuthToken,
       groupId: currentSession.groupId,
     },
     payload.pairingId,
@@ -210,6 +215,7 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
       scannedPublicKey: payload.publicKey,
       encryptedName: name.ciphertext,
       nameIv: name.iv,
+      deviceAuthTokenHash: await sha256Hex(deviceAuthToken),
     },
     authHeaders(),
   );

@@ -8,7 +8,7 @@ import type {
 } from "@file-sharer/shared";
 import { authenticate } from "../auth";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireString } from "../http";
+import { readJson, requireId, requireSha256Hex, requireString } from "../http";
 import type { RouteContext } from "../router";
 import { clientIp, rateLimit } from "../security";
 
@@ -60,6 +60,7 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const scannedPublicKey = requireString(body.scannedPublicKey, "scannedPublicKey", 2048);
   const nameEnc = requireString(body.encryptedName, "encryptedName", 1024);
   const nameIv = requireString(body.nameIv, "nameIv", 128);
+  const deviceAuthTokenHash = requireSha256Hex(body.deviceAuthTokenHash, "deviceAuthTokenHash");
 
   const slot = await c.env.DB.prepare(
     "SELECT new_device AS newDevice, wrapped_package AS wrapped FROM pairing WHERE pairing_id = ?",
@@ -89,7 +90,9 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   // it could collide with a device already registered to a *different* group. If we
   // let the upsert below run for such a row it would un-revoke and overwrite a
   // foreign device — a revocation bypass. Reject the collision instead.
-  const existingDevice = await c.env.DB.prepare("SELECT group_id AS groupId FROM devices WHERE id = ?")
+  const existingDevice = await c.env.DB.prepare(
+    "SELECT group_id AS groupId FROM devices WHERE id = ?",
+  )
     .bind(device.id)
     .first<{ groupId: string }>();
   if (existingDevice && existingDevice.groupId !== auth.groupId) {
@@ -103,15 +106,16 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   // that slips past the check above rather than reactivating it.
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          revoked_at = NULL,
          name_enc = excluded.name_enc,
          name_iv = excluded.name_iv,
-         public_key = excluded.public_key
+         public_key = excluded.public_key,
+         auth_token_hash = excluded.auth_token_hash
        WHERE devices.group_id = excluded.group_id`,
-    ).bind(device.id, auth.groupId, nameEnc, nameIv, device.publicKey, now),
+    ).bind(device.id, auth.groupId, nameEnc, nameIv, device.publicKey, deviceAuthTokenHash, now),
     c.env.DB.prepare(
       `UPDATE pairing
           SET group_id = ?, wrapped_package = ?, ephemeral_public_key = ?

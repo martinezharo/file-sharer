@@ -44,7 +44,11 @@ wrangler deploy
 ## API surface (`/api`)
 
 All endpoints except group creation and the semi-open pairing slots require
-`Authorization: Bearer <groupAuthToken>` and `X-Device-Id: <deviceId>`.
+Authenticated routes use `Authorization: Bearer <deviceAuthToken>`. Every device
+receives an independent random credential during creation or encrypted pairing;
+the Worker stores only its SHA-256 hash and resolves the device identity from it.
+Revoking one device therefore invalidates only that device, without signing out
+other devices (including devices that are offline at the time).
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |

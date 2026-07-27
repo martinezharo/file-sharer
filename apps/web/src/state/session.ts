@@ -24,7 +24,7 @@ const DEVICE_KEYPAIR_KEY = META_DEVICE_KEYPAIR;
 export function authHeaders(): Auth {
   const current = session.value;
   if (!current) throw new Error("Not signed in");
-  return { token: current.groupAuthToken, deviceId: current.deviceId };
+  return { token: current.deviceAuthToken };
 }
 
 /** Restore an existing session + keys from IndexedDB on startup. */

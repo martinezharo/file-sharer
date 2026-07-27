@@ -14,7 +14,7 @@ export async function createGroup(c: RouteContext): Promise<Response> {
   await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
   const body = await readJson<CreateGroupRequest>(c.request);
   const groupId = requireId(body.groupId, "groupId");
-  const authTokenHash = requireSha256Hex(body.authTokenHash, "authTokenHash");
+  const deviceAuthTokenHash = requireSha256Hex(body.deviceAuthTokenHash, "deviceAuthTokenHash");
   const device = body.device;
   if (!device || typeof device !== "object") {
     throw new ApiError("bad_request", "Missing device");
@@ -35,12 +35,12 @@ export async function createGroup(c: RouteContext): Promise<Response> {
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT INTO groups (id, auth_token_hash, created_at) VALUES (?, ?, ?)").bind(
       groupId,
-      authTokenHash,
+      deviceAuthTokenHash,
       now,
     ),
     c.env.DB.prepare(
-      "INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).bind(deviceId, groupId, nameEnc, nameIv, publicKey, now),
+      "INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).bind(deviceId, groupId, nameEnc, nameIv, publicKey, deviceAuthTokenHash, now),
   ]);
 
   return json({ ok: true } satisfies CreateGroupResponse);

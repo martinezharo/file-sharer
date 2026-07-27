@@ -28,9 +28,11 @@ same origin — one deploy, no CORS.
 - **GroupKey**: AES-GCM 256, created by the first device. Encrypts every message/file.
 - **Device keypair**: ECDH P-256. The private key is non-extractable and stored as a `CryptoKey`.
 - **Pairing**: a new device shows its public key (QR/text); an existing device wraps the GroupKey
-  (+ group auth token) for it using an ephemeral ECDH key (ECIES). The public key travels
+  plus a newly generated device token for it using an ephemeral ECDH key (ECIES). The public key travels
   out-of-band (you scan it), so there is no MITM.
-- **API auth**: a 256-bit group token (bearer). The server stores only its SHA-256.
+- **API auth**: an independent 256-bit bearer token per device. The server stores only
+  its SHA-256 and derives the device identity from it, so one device can be revoked
+  without disrupting any others.
 
 ## Development
 
