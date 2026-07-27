@@ -40,13 +40,11 @@ function check(name: string, condition: boolean): void {
 
 interface Auth {
   token: string;
-  deviceId: string;
 }
 function headers(auth?: Auth, extra: Record<string, string> = {}): Record<string, string> {
   const h: Record<string, string> = { ...extra };
   if (auth) {
     h.Authorization = `Bearer ${auth.token}`;
-    h["X-Device-Id"] = auth.deviceId;
   }
   return h;
 }
@@ -64,12 +62,12 @@ const groupKey = await generateGroupKey();
 const token = randomToken();
 const groupId = randomId();
 const aId = randomId();
-const aAuth: Auth = { token, deviceId: aId };
+const aAuth: Auth = { token };
 
 const aName = await encryptName(groupKey, "Device A", aId);
 const createRes = await postJson("/api/groups", {
   groupId,
-  authTokenHash: await sha256Hex(token),
+  deviceAuthTokenHash: await sha256Hex(token),
   device: { id: aId, publicKey: await exportPublicKey(aKeys.publicKey) },
   encryptedName: aName.ciphertext,
   nameIv: aName.iv,
@@ -81,6 +79,7 @@ const bKeys = await generateDeviceKeyPair();
 const bId = randomId();
 const pairingId = randomId();
 const bPublic = await exportPublicKey(bKeys.publicKey);
+const bToken = randomToken();
 const reqRes = await postJson(`/api/pairing/${pairingId}/request`, {
   device: { id: bId, publicKey: bPublic },
 });
@@ -92,7 +91,7 @@ const wrapped = await wrapPairingPackage(
   recipientPub,
   {
     groupKey: await exportGroupKey(groupKey),
-    groupAuthToken: token,
+    deviceAuthToken: bToken,
     groupId,
   },
   pairingId,
@@ -106,6 +105,7 @@ const completeRes = await postJson(
     scannedPublicKey: bPublic,
     encryptedName: bName.ciphertext,
     nameIv: bName.iv,
+    deviceAuthTokenHash: await sha256Hex(bToken),
   },
   aAuth,
 );
@@ -126,9 +126,9 @@ const recovered = await unwrapPairingPackage(
   pairingId,
 );
 check("B recovered the correct groupId", recovered.groupId === groupId);
-check("B recovered the correct auth token", recovered.groupAuthToken === token);
+check("B recovered its own auth token", recovered.deviceAuthToken === bToken);
 const bGroupKey = await importGroupKey(recovered.groupKey);
-const bAuth: Auth = { token: recovered.groupAuthToken, deviceId: bId };
+const bAuth: Auth = { token: recovered.deviceAuthToken };
 
 // --- Device A: send a text message ----------------------------------------
 const plaintext = "Hello from A 🌍 — secret!";
@@ -241,7 +241,7 @@ const cGroupKey = await generateGroupKey();
 const cName = await encryptName(cGroupKey, "Group C device", cId);
 const cCreate = await postJson("/api/groups", {
   groupId: cGroupId,
-  authTokenHash: await sha256Hex(cToken),
+  deviceAuthTokenHash: await sha256Hex(cToken),
   device: { id: cId, publicKey: await exportPublicKey(cKeys.publicKey) },
   encryptedName: cName.ciphertext,
   nameIv: cName.iv,
@@ -252,13 +252,14 @@ check("group C create returns 200", cCreate.ok);
 // actually gets persisted (sendMessage short-circuits when no recipients).
 const cPairingId = randomId();
 const c2Public = await exportPublicKey(c2Keys.publicKey);
+const c2Token = randomToken();
 await postJson(`/api/pairing/${cPairingId}/request`, {
   device: { id: c2Id, publicKey: c2Public },
 });
 const cRecipient = await importPublicKey(c2Public);
 const cWrapped = await wrapPairingPackage(
   cRecipient,
-  { groupKey: await exportGroupKey(cGroupKey), groupAuthToken: cToken, groupId: cGroupId },
+  { groupKey: await exportGroupKey(cGroupKey), deviceAuthToken: c2Token, groupId: cGroupId },
   cPairingId,
 );
 const c2Name = await encryptName(cGroupKey, "Group C2 device", c2Id);
@@ -270,8 +271,9 @@ const cComplete = await postJson(
     scannedPublicKey: c2Public,
     encryptedName: c2Name.ciphertext,
     nameIv: c2Name.iv,
+    deviceAuthTokenHash: await sha256Hex(c2Token),
   },
-  { token: cToken, deviceId: cId },
+  { token: cToken },
 );
 check("group C second device paired", cComplete.ok);
 
@@ -280,7 +282,7 @@ const crossEnc = await encryptText(cGroupKey, "private to C", `text:${crossTextI
 const crossSend = await postJson(
   "/api/messages",
   { id: crossTextId, encryptedPayload: crossEnc.ciphertext, iv: crossEnc.iv },
-  { token: cToken, deviceId: cId },
+  { token: cToken },
 );
 check("group C message created", crossSend.ok);
 

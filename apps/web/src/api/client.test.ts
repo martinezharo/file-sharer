@@ -28,7 +28,7 @@ describe("upload cancellation", () => {
     const upload = api.uploadFile(
       "file-1",
       new ArrayBuffer(16),
-      { token: "token", deviceId: "device" },
+      { token: "token" },
       controller.signal,
     );
     await started;

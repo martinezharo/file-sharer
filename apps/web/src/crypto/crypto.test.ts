@@ -117,7 +117,7 @@ describe("ECIES pairing wrap/unwrap", () => {
 
     const payload: PairingPayload = {
       groupKey: await exportGroupKey(groupKey),
-      groupAuthToken: randomToken(),
+      deviceAuthToken: randomToken(),
       groupId: randomId(),
     };
 
@@ -145,7 +145,7 @@ describe("ECIES pairing wrap/unwrap", () => {
     const groupKey = await generateGroupKey();
     const payload: PairingPayload = {
       groupKey: await exportGroupKey(groupKey),
-      groupAuthToken: randomToken(),
+      deviceAuthToken: randomToken(),
       groupId: randomId(),
     };
     const wrapped = await wrapPairingPackage(device2.publicKey, payload);

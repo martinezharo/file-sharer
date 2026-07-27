@@ -109,8 +109,10 @@ export function DeviceManager(): JSX.Element {
       {pendingRevoke && (
         <Modal title="Revoke this device?" onClose={() => setPendingRevoke(null)}>
           <p class="text-[13.5px] leading-5 text-subtle">
-            <strong class="text-ink">{pendingRevoke.name}</strong> will lose access to this space. It
-            won't be able to send or receive messages until you link it again.
+            <strong class="text-ink">{pendingRevoke.name}</strong> will lose access to this space.
+            It won't be able to send or receive messages until you link it again. Your other devices
+            stay connected, even if they are offline right now. Content already downloaded to this
+            device cannot be removed remotely.
           </p>
           <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
             <Button class="sm:w-auto" variant="secondary" onClick={() => setPendingRevoke(null)}>

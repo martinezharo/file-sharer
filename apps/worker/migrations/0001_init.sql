@@ -3,7 +3,7 @@
 
 CREATE TABLE groups (
   id              TEXT PRIMARY KEY,
-  auth_token_hash TEXT NOT NULL,         -- SHA-256(groupAuthToken), lowercase hex
+  auth_token_hash TEXT NOT NULL,         -- legacy bootstrap hash; device auth lives on devices
   created_at      INTEGER NOT NULL
 );
 

@@ -13,9 +13,15 @@
 
 Biggest remaining items (need design decisions, don't do blindly):
 
+- **Per-device authentication is now implemented.** Each device receives its own
+  bearer token inside the E2E-encrypted pairing package. Revocation invalidates only
+  that device; every other device stays connected even while offline. Sessions made
+  before migration `0003_device_tokens.sql` must be linked again once. This is an
+  intentional early-WIP migration rather than retaining the impersonable shared token.
+
 - **`GroupKey` rotation → real revocation (forward secrecy).** 🔴🏗️ Rotate **only the
-  `GroupKey`**, leaving the group token in place — so no device is 401'd and none has to
-  re-pair. The revoking device wraps the new key per remaining device (ECIES, using their
+  `GroupKey`**, leaving every remaining device token in place — so no valid device is 401'd
+  or has to re-pair. The revoking device wraps the new key per remaining device (ECIES, using their
   published ECDH pubkey) and deposits the blobs server-side; each device adopts it on its next
   sync. Offline devices self-heal on reconnect — keep each wrapped blob until acked. Design the
   re-keying protocol first.
@@ -29,8 +35,12 @@ Biggest remaining items (need design decisions, don't do blindly):
 ## 1. Security
 
 - [x] ~~🔴⚡ **Cross-group revocation bypass in `completePairing`.**~~ The `INSERT … ON CONFLICT(id) DO UPDATE SET revoked_at = NULL` matched on the global device PK without checking the group, so an ex-member (who still holds the group token, which is never rotated) could **un-revoke their own device in another group** by reserving a pairing slot with that device id from a throwaway group. Fixed in `apps/worker/src/routes/pairing.ts`: reject a device id already registered to a different group, plus a `WHERE devices.group_id = excluded.group_id` guard on the upsert (defense-in-depth against TOCTOU).
-- [ ] 🔴🏗️ **Revocation does NOT rotate the `GroupKey`.** `apps/worker/src/routes/devices.ts` only sets `revoked_at`. A revoked device keeps the `GroupKey` locally forever and can decrypt any ciphertext it already saw/exfiltrated — and any *future* ciphertext it captures off the wire. Real revocation = rotate the `GroupKey`: the revoking device generates a new key, wraps it for each remaining device via ECIES (their published ECDH pubkey) and deposits the blobs on the server; each device adopts the new key on its next sync. **No need to rotate the token or re-pair** — keeping the shared token means no device gets 401'd, and offline devices self-heal on reconnect (keep each wrapped blob until acked). Biggest current limitation.
-- [ ] 🟠🛠️ **Single shared group token + self-asserted `X-Device-Id` (not per-device).** All devices share one bearer, so a leak from any device = full group access. The device id is just an HTTP header: with the shared token, a device can impersonate any *other* deviceId it has seen in `senderDeviceId`/ack payloads (read its pending messages, ack on its behalf, send as it). The ECDH public key of the device is published at pairing but **never used to authenticate requests**. Two complementary fixes: (a) per-device token (server maps token→device→group) — also makes revocation cut off the right device, (b) require the device's ECDH private key to sign each request (or at least the auth header). Real fix likely needs (a)+(b) together; the GroupKey rotation above reduces the blast radius of (a) staying unsolved.
+- [ ] 🔴🏗️ **Revocation does NOT rotate the `GroupKey`.** `apps/worker/src/routes/devices.ts` only sets `revoked_at`. A revoked device keeps the `GroupKey` locally forever and can decrypt any ciphertext it already saw/exfiltrated — and any *future* ciphertext it captures by some route other than the now-denied API. Real revocation = rotate the `GroupKey`: the revoking device generates a new key, wraps it for each remaining device via ECIES (their published ECDH pubkey) and deposits the blobs on the server; each device adopts the new key on its next sync. **No need to rotate valid device tokens or re-pair** — offline devices can self-heal on reconnect (keep each wrapped blob until acked). Biggest remaining cryptographic limitation.
+- [x] ~~🟠🛠️ **Single shared group token + self-asserted `X-Device-Id`.**~~ Replaced with
+  independent random bearer tokens whose hashes live on each device row. The server derives
+  both device and group identity from the token, and revocation immediately rejects only that
+  credential. Remaining defense-in-depth: signed requests can later provide proof of possession
+  of the device ECDH/signing key in addition to possession of the bearer.
 - [ ] 🟠🏗️ **No sender authenticity.** `senderDeviceId`/`senderName` are provided by the server, not the sender. A malicious server can forge who sent what. Add a **signing** keypair per device (ECDSA/Ed25519) and sign messages; the receiver verifies with the public key published at pairing time.
 - [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages. Consider per-device signed sequence numbers. At minimum, document it in the threat model.
 - [x] ~~🟡⚡ **Pairing slot not deleted on completion.**~~ `pollPairing` left the (encrypted) package reachable by `pairingId` until cron reaped it (≤10 min). Fixed: the joining device now calls a new `DELETE /api/pairing/:pairingId` endpoint right after it successfully unwraps the package and persists its session; cron remains the safety net if that call never arrives.
@@ -45,7 +55,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 ## 2. Privacy
 
 - [ ] 🔴🏗️ Key rotation on revocation (see §1) — without it there is no real "forget".
-- [ ] 🟠🏗️ **No client at-rest encryption.** IndexedDB stores messages, decrypted files, the `GroupKey` (as a `CryptoKey`) and the `groupAuthToken` in clear. Anyone with device access (or an XSS) gets everything. Add an optional PIN/passphrase lock (derive a wrapping key with PBKDF2/Argon2) or WebAuthn/passkey to wrap the `GroupKey` at rest.
+- [ ] 🟠🏗️ **No client at-rest encryption.** IndexedDB stores messages, decrypted files, the `GroupKey` (as a `CryptoKey`) and the `deviceAuthToken` in clear. Anyone with device access (or an XSS) gets everything. Add an optional PIN/passphrase lock (derive a wrapping key with PBKDF2/Argon2) or WebAuthn/passkey to wrap the `GroupKey` at rest.
 - [ ] 🟡🏗️ **Server-observable metadata:** sizes (via `Content-Length` and metadata length), timing, device count. For sizes, consider padding the ciphertext to buckets. Explicitly document what the server sees.
 
 ## 3. Performance

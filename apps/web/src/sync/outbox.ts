@@ -92,7 +92,10 @@ export async function flushQueuedOutbox(
   return doFlush(notify, options);
 }
 
-async function doFlush(notify: NotifyUpdate | undefined, options: FlushOptions): Promise<FlushResult> {
+async function doFlush(
+  notify: NotifyUpdate | undefined,
+  options: FlushOptions,
+): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, failed: 0, remaining: 0 };
 
   const [session, key] = await Promise.all([
@@ -100,7 +103,7 @@ async function doFlush(notify: NotifyUpdate | undefined, options: FlushOptions):
     metaGet<CryptoKey>(META_GROUP_KEY),
   ]);
   if (!session || !key) return result;
-  const auth: Auth = { token: session.groupAuthToken, deviceId: session.deviceId };
+  const auth: Auth = { token: session.deviceAuthToken };
 
   const queued = (await allMessages())
     .filter(isFlushable)

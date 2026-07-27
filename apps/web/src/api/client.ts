@@ -1,15 +1,14 @@
-import {
-  type AckResponse,
-  type ApiErrorBody,
-  type CreateGroupRequest,
-  type CreateGroupResponse,
-  DEVICE_ID_HEADER,
-  type DevicesListResponse,
-  type PairingCompleteBody,
-  type PairingPollResponse,
-  type PairingRequestBody,
-  type PendingMessagesResponse,
-  type SendMessageRequest,
+import type {
+  AckResponse,
+  ApiErrorBody,
+  CreateGroupRequest,
+  CreateGroupResponse,
+  DevicesListResponse,
+  PairingCompleteBody,
+  PairingPollResponse,
+  PairingRequestBody,
+  PendingMessagesResponse,
+  SendMessageRequest,
 } from "@file-sharer/shared";
 
 const BASE = "/api";
@@ -17,7 +16,6 @@ const BASE = "/api";
 /** Auth material attached to authenticated requests. */
 export interface Auth {
   token: string;
-  deviceId: string;
 }
 
 export class ApiError extends Error {
@@ -51,7 +49,6 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
   const headers = new Headers(opts.headers);
   if (opts.auth) {
     headers.set("Authorization", `Bearer ${opts.auth.token}`);
-    headers.set(DEVICE_ID_HEADER, opts.auth.deviceId);
   }
 
   let body: BodyInit | undefined;

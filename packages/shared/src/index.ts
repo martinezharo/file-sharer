@@ -27,9 +27,6 @@ export const MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
 /** Default client polling interval for pending messages. */
 export const POLL_INTERVAL_MS = 8000;
 
-/** HTTP header carrying the calling device id. */
-export const DEVICE_ID_HEADER = "X-Device-Id";
-
 // ---------------------------------------------------------------------------
 // Core domain shapes
 // ---------------------------------------------------------------------------
@@ -74,8 +71,8 @@ export interface PairingQrPayload {
 
 export interface CreateGroupRequest {
   groupId: string;
-  /** SHA-256(groupAuthToken) as lowercase hex. The raw token never leaves clients. */
-  authTokenHash: string;
+  /** SHA-256(deviceAuthToken) as lowercase hex. The raw token never leaves clients. */
+  deviceAuthTokenHash: string;
   device: DeviceDescriptor;
   /** GroupKey-encrypted device name (the first device already holds the key). */
   encryptedName: string;
@@ -116,6 +113,8 @@ export interface PairingCompleteBody {
    */
   encryptedName: string;
   nameIv: string;
+  /** SHA-256 of the new device's independently generated bearer token. */
+  deviceAuthTokenHash: string;
 }
 
 export interface PairingCompleteResponse {
@@ -136,7 +135,8 @@ export interface PairingPollResponse {
 export interface PairingPayload {
   /** Raw AES-GCM 256 GroupKey, base64url. */
   groupKey: string;
-  groupAuthToken: string;
+  /** Bearer credential unique to the joining device. */
+  deviceAuthToken: string;
   groupId: string;
 }
 

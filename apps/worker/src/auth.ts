@@ -1,4 +1,3 @@
-import { DEVICE_ID_HEADER } from "@file-sharer/shared";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 
@@ -15,7 +14,7 @@ export async function sha256Hex(input: string): Promise<string> {
 }
 
 /**
- * Authenticate a request via the group bearer token + device id header.
+ * Authenticate a request via a bearer token unique to one device.
  *
  * The raw token never reaches the server in storage: we hash the presented
  * token and look the group up by that hash. The device must exist, belong to
@@ -27,31 +26,21 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
   if (!match) {
     throw new ApiError("unauthorized", "Missing bearer token");
   }
-  const deviceId = request.headers.get(DEVICE_ID_HEADER);
-  if (!deviceId) {
-    throw new ApiError("unauthorized", "Missing device id");
-  }
-
   const tokenHash = await sha256Hex(match[1]!.trim());
 
-  // One round-trip for the two checks: the LEFT JOIN keeps the group row even
-  // when the device is missing/revoked, so "bad token" (401) and "bad device"
-  // (403) stay distinguishable.
   const row = await env.DB.prepare(
-    `SELECT g.id AS groupId, d.id AS deviceId
-       FROM groups g
-       LEFT JOIN devices d
-         ON d.group_id = g.id AND d.id = ? AND d.revoked_at IS NULL
-      WHERE g.auth_token_hash = ?`,
+    `SELECT group_id AS groupId, id AS deviceId, revoked_at AS revokedAt
+       FROM devices
+      WHERE auth_token_hash = ?`,
   )
-    .bind(deviceId, tokenHash)
-    .first<{ groupId: string; deviceId: string | null }>();
+    .bind(tokenHash)
+    .first<{ groupId: string; deviceId: string; revokedAt: number | null }>();
   if (!row) {
     throw new ApiError("unauthorized", "Invalid token");
   }
-  if (!row.deviceId) {
-    throw new ApiError("forbidden", "Device is not an active member of this group");
+  if (row.revokedAt !== null) {
+    throw new ApiError("forbidden", "This device has been revoked. Link it again to reconnect.");
   }
 
-  return { groupId: row.groupId, deviceId };
+  return { groupId: row.groupId, deviceId: row.deviceId };
 }
