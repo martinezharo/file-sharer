@@ -130,6 +130,11 @@
 
   html {
     scroll-behavior: smooth;
+    /* Keep a downward overscroll at the top of the mobile PWA inside the app
+       instead of handing it to the browser's pull-to-refresh gesture. This
+       must live on the root scroller (not only body) to work consistently
+       across mobile engines. */
+    overscroll-behavior: none;
     /* Reserve the scrollbar gutter so locking scroll (modal open) never
        shifts the layout and breaks the shared-element transition. */
     scrollbar-gutter: stable;
