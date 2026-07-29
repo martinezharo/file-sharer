@@ -112,7 +112,10 @@ export function DeviceManager(): JSX.Element {
             {devices.map((device) => (
               <div
                 key={device.id}
-                class="flex items-center gap-3.5 rounded-card bg-surface px-[15px] py-[13px] shadow-soft transition hover:shadow-pop dark:bg-surface-2"
+                class={cx(
+                  "flex items-center gap-3.5 rounded-card bg-surface px-[15px] py-[13px] shadow-soft transition hover:shadow-pop dark:bg-surface-2",
+                  device.id === myId && "ring-1 ring-inset ring-accent/35",
+                )}
               >
                 <div class="grid size-[42px] flex-none place-items-center rounded-xl bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_80%,#fff)_0%,var(--c-accent)_55%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)] font-mono text-[14px] font-medium text-white ring-1 ring-inset ring-white/20">
                   {initials(device.name)}
@@ -121,13 +124,9 @@ export function DeviceManager(): JSX.Element {
                   <div class="flex flex-wrap items-center gap-2 text-[14.5px] font-medium">
                     <span class="truncate">{device.name}</span>
                     <RoleBadge role={device.role} />
-                    {device.id === myId && (
-                      <span class="flex-none rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.1em] text-accent">
-                        This device
-                      </span>
-                    )}
                   </div>
                   <div class="font-mono text-[11.5px] text-muted">
+                    {device.id === myId && <span class="text-accent">This device · </span>}
                     Linked {new Date(device.createdAt).toLocaleString()}
                   </div>
                 </div>
@@ -253,7 +252,7 @@ function RoleBadge({ role }: { role: DeviceRole }): JSX.Element {
         role === "owner"
           ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
           : role === "admin"
-            ? "bg-accent-soft text-accent"
+            ? "bg-sky-500/12 text-sky-700 dark:text-sky-300"
             : "bg-surface-3 text-muted",
       )}
     >
