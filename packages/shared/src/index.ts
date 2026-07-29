@@ -47,12 +47,17 @@ export interface EncryptedName {
   nameIv: string;
 }
 
+export const DEVICE_ROLES = ["owner", "admin", "member"] as const;
+export type DeviceRole = (typeof DEVICE_ROLES)[number];
+export type AssignableDeviceRole = Exclude<DeviceRole, "owner">;
+
 /** A device as listed in the management UI (name stays encrypted in transit). */
 export interface DeviceInfo {
   id: string;
   encryptedName: string;
   nameIv: string;
   createdAt: number;
+  role: DeviceRole;
 }
 
 /** Payload encoded inside a QR code (or pasted as text) during pairing. */
@@ -187,9 +192,20 @@ export interface AckResponse {
 
 export interface DevicesListResponse {
   devices: DeviceInfo[];
+  /** Role of the device making the request, included to render permissions without another read. */
+  currentRole: DeviceRole;
 }
 
 export interface RevokeDeviceResponse {
+  ok: true;
+}
+
+export interface UpdateDeviceRoleRequest {
+  /** Ownership is transferred through a dedicated flow in the future, never through this endpoint. */
+  role: AssignableDeviceRole;
+}
+
+export interface UpdateDeviceRoleResponse {
   ok: true;
 }
 

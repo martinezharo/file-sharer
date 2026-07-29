@@ -39,7 +39,7 @@ export async function createGroup(c: RouteContext): Promise<Response> {
       now,
     ),
     c.env.DB.prepare(
-      "INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, 'owner', ?)",
     ).bind(deviceId, groupId, nameEnc, nameIv, publicKey, deviceAuthTokenHash, now),
   ]);
 

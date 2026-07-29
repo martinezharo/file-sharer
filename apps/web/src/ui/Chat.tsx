@@ -99,7 +99,7 @@ export function Chat(): JSX.Element {
 
     let cancelled = false;
     listDevicesDecrypted()
-      .then((devices) => {
+      .then(({ devices }) => {
         if (!cancelled) {
           setDeviceNames(new Map(devices.map((device) => [device.id, device.name])));
         }

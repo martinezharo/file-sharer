@@ -33,6 +33,9 @@ same origin — one deploy, no CORS.
 - **API auth**: an independent 256-bit bearer token per device. The server stores only
   its SHA-256 and derives the device identity from it, so one device can be revoked
   without disrupting any others.
+- **Device roles**: the first device is the space owner, owners can appoint administrators,
+  and regular members cannot add or revoke devices. Existing spaces assign ownership to
+  their oldest active device during migration.
 
 ## Development
 

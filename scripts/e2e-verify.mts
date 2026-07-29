@@ -294,7 +294,7 @@ check("ackMessage rejects cross-group message with 404", crossAck.status === 404
 // And the foreign message must still exist afterwards (C2 sees it pending).
 const c2Pending = (await (
   await fetch(`${BASE}/api/messages/pending`, {
-    headers: headers({ token: cToken, deviceId: c2Id }),
+    headers: headers({ token: c2Token }),
   })
 ).json()) as { messages: { id: string }[] };
 check(
@@ -331,10 +331,52 @@ check("invalid token is rejected", badToken.status === 401);
 // --- Device management / revoke -------------------------------------------
 const devicesBefore = (await (
   await fetch(`${BASE}/api/devices`, { headers: headers(aAuth) })
-).json()) as { devices: any[] };
+).json()) as { devices: any[]; currentRole: string };
 check("group lists 2 active devices", devicesBefore.devices.length === 2);
+check("space creator is the owner", devicesBefore.currentRole === "owner");
+check(
+  "newly paired device is a member",
+  devicesBefore.devices.find((d) => d.id === bId)?.role === "member",
+);
 
-await fetch(`${BASE}/api/devices/${bId}`, { method: "DELETE", headers: headers(aAuth) });
+const memberRevokeOwner = await fetch(`${BASE}/api/devices/${aId}`, {
+  method: "DELETE",
+  headers: headers(bAuth),
+});
+check("member cannot revoke another device", memberRevokeOwner.status === 403);
+
+const promoteB = await fetch(`${BASE}/api/devices/${bId}/role`, {
+  method: "PATCH",
+  headers: headers(aAuth, { "Content-Type": "application/json" }),
+  body: JSON.stringify({ role: "admin" }),
+});
+check("owner can promote a member to admin", promoteB.ok);
+
+const adminRevokeOwner = await fetch(`${BASE}/api/devices/${aId}`, {
+  method: "DELETE",
+  headers: headers(bAuth),
+});
+check("admin cannot revoke the owner", adminRevokeOwner.status === 403);
+
+const adminChangesRole = await fetch(`${BASE}/api/devices/${aId}/role`, {
+  method: "PATCH",
+  headers: headers(bAuth, { "Content-Type": "application/json" }),
+  body: JSON.stringify({ role: "member" }),
+});
+check("admin cannot change roles", adminChangesRole.status === 403);
+
+const demoteB = await fetch(`${BASE}/api/devices/${bId}/role`, {
+  method: "PATCH",
+  headers: headers(aAuth, { "Content-Type": "application/json" }),
+  body: JSON.stringify({ role: "member" }),
+});
+check("owner can remove administrator access", demoteB.ok);
+
+const revokeB = await fetch(`${BASE}/api/devices/${bId}`, {
+  method: "DELETE",
+  headers: headers(aAuth),
+});
+check("owner can revoke a member", revokeB.ok);
 const devicesAfter = (await (
   await fetch(`${BASE}/api/devices`, { headers: headers(aAuth) })
 ).json()) as { devices: any[] };
