@@ -1,4 +1,9 @@
-import { MAX_FILE_SIZE, type PairingQrPayload } from "@file-sharer/shared";
+import {
+  type AssignableDeviceRole,
+  type DeviceRole,
+  MAX_FILE_SIZE,
+  type PairingQrPayload,
+} from "@file-sharer/shared";
 import { signal } from "@preact/signals";
 import { api, NetworkError } from "./api/client";
 import {
@@ -226,26 +231,43 @@ export interface DeviceView {
   id: string;
   name: string;
   createdAt: number;
+  role: DeviceRole;
 }
 
-export async function listDevicesDecrypted(): Promise<DeviceView[]> {
+export interface DeviceManagementView {
+  devices: DeviceView[];
+  currentRole: DeviceRole;
+}
+
+export async function listDevicesDecrypted(): Promise<DeviceManagementView> {
   const key = groupKey.value;
   if (!key) throw new Error("Not signed in");
-  const { devices } = await api.listDevices(authHeaders());
-  return Promise.all(
-    devices.map(async (d) => ({
-      id: d.id,
-      createdAt: d.createdAt,
-      name:
-        d.encryptedName && d.nameIv
-          ? await decryptName(key, d.encryptedName, d.nameIv, d.id).catch(() => d.id)
-          : d.id,
-    })),
-  );
+  const { devices, currentRole } = await api.listDevices(authHeaders());
+  return {
+    currentRole,
+    devices: await Promise.all(
+      devices.map(async (d) => ({
+        id: d.id,
+        createdAt: d.createdAt,
+        role: d.role,
+        name:
+          d.encryptedName && d.nameIv
+            ? await decryptName(key, d.encryptedName, d.nameIv, d.id).catch(() => d.id)
+            : d.id,
+      })),
+    ),
+  };
 }
 
 export async function revokeDevice(deviceId: string): Promise<void> {
   await api.revokeDevice(deviceId, authHeaders());
+}
+
+export async function updateDeviceRole(
+  deviceId: string,
+  role: AssignableDeviceRole,
+): Promise<void> {
+  await api.updateDeviceRole(deviceId, role, authHeaders());
 }
 
 // ---------------------------------------------------------------------------

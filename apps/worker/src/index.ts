@@ -2,7 +2,7 @@ import { runCleanup } from "./cron";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 import { Router } from "./router";
-import { listDevices, revokeDevice } from "./routes/devices";
+import { listDevices, revokeDevice, updateDeviceRole } from "./routes/devices";
 import { downloadFile, uploadFile } from "./routes/files";
 import { createGroup } from "./routes/groups";
 import { ackMessage, pendingMessages, sendMessage } from "./routes/messages";
@@ -27,6 +27,7 @@ router.get("/api/files/:r2key", downloadFile);
 
 router.get("/api/devices", listDevices);
 router.delete("/api/devices/:id", revokeDevice);
+router.patch("/api/devices/:id/role", updateDeviceRole);
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

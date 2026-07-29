@@ -6,7 +6,7 @@ import type {
   PairingRequestBody,
   PairingRequestResponse,
 } from "@file-sharer/shared";
-import { authenticate } from "../auth";
+import { authenticate, requireAdmin } from "../auth";
 import { ApiError, json } from "../errors";
 import { readJson, requireId, requireSha256Hex, requireString } from "../http";
 import type { RouteContext } from "../router";
@@ -53,6 +53,7 @@ export async function requestPairing(c: RouteContext): Promise<Response> {
  */
 export async function completePairing(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
+  requireAdmin(auth);
   const pairingId = requireId(c.params.pairingId, "pairingId");
   const body = await readJson<PairingCompleteBody>(c.request);
   const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 8192);
@@ -106,14 +107,15 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   // that slips past the check above rather than reactivating it.
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'member', ?)
        ON CONFLICT(id) DO UPDATE SET
          revoked_at = NULL,
          name_enc = excluded.name_enc,
          name_iv = excluded.name_iv,
          public_key = excluded.public_key,
-         auth_token_hash = excluded.auth_token_hash
+         auth_token_hash = excluded.auth_token_hash,
+         role = 'member'
        WHERE devices.group_id = excluded.group_id`,
     ).bind(device.id, auth.groupId, nameEnc, nameIv, device.publicKey, deviceAuthTokenHash, now),
     c.env.DB.prepare(

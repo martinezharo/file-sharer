@@ -4,6 +4,7 @@ import type {
   CreateGroupRequest,
   CreateGroupResponse,
   DevicesListResponse,
+  AssignableDeviceRole,
   PairingCompleteBody,
   PairingPollResponse,
   PairingRequestBody,
@@ -188,5 +189,9 @@ export const api = {
 
   revokeDevice(id: string, auth: Auth): Promise<void> {
     return jsonRequest("DELETE", `/devices/${id}`, { auth });
+  },
+
+  updateDeviceRole(id: string, role: AssignableDeviceRole, auth: Auth): Promise<void> {
+    return jsonRequest("PATCH", `/devices/${id}/role`, { jsonBody: { role }, auth });
   },
 };

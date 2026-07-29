@@ -10,7 +10,7 @@ export interface RouteContext {
 
 export type RouteHandler = (c: RouteContext) => Promise<Response> | Response;
 
-type Method = "GET" | "POST" | "PUT" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 interface Route {
   method: Method;
@@ -34,6 +34,9 @@ export class Router {
   }
   put(pattern: string, handler: RouteHandler): void {
     this.add("PUT", pattern, handler);
+  }
+  patch(pattern: string, handler: RouteHandler): void {
+    this.add("PATCH", pattern, handler);
   }
   delete(pattern: string, handler: RouteHandler): void {
     this.add("DELETE", pattern, handler);

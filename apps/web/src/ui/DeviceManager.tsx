@@ -1,7 +1,14 @@
-import { ClipboardPaste, Plus, ScanLine } from "lucide-preact";
+import type { DeviceRole } from "@file-sharer/shared";
+import { ClipboardPaste, Crown, Plus, ScanLine, ShieldCheck, UserRound } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addDeviceFromQr, type DeviceView, listDevicesDecrypted, revokeDevice } from "../actions";
+import {
+  addDeviceFromQr,
+  type DeviceView,
+  listDevicesDecrypted,
+  revokeDevice,
+  updateDeviceRole,
+} from "../actions";
 import { startScanner, type Scanner } from "../qr/scan";
 import { session } from "../state/session";
 import { showToast } from "../state/ui";
@@ -12,18 +19,46 @@ export function DeviceManager(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState<DeviceView | null>(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState<DeviceView | null>(null);
+  const [currentRole, setCurrentRole] = useState<DeviceRole>("member");
+  const [changingRole, setChangingRole] = useState<string | null>(null);
   const myId = session.value?.deviceId;
 
   async function refresh(): Promise<void> {
     setLoading(true);
     try {
-      setDevices(await listDevicesDecrypted());
+      const result = await listDevicesDecrypted();
+      setDevices(result.devices);
+      setCurrentRole(result.currentRole);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not load devices", "error");
     } finally {
       setLoading(false);
     }
   }
+
+  async function changeRole(device: DeviceView): Promise<void> {
+    const nextRole = device.role === "admin" ? "member" : "admin";
+    setPendingRoleChange(null);
+    setChangingRole(device.id);
+    try {
+      await updateDeviceRole(device.id, nextRole);
+      setDevices((current) =>
+        current.map((entry) => (entry.id === device.id ? { ...entry, role: nextRole } : entry)),
+      );
+      showToast(
+        nextRole === "admin"
+          ? `${device.name} is now an administrator`
+          : `Administrator access removed from ${device.name}`,
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not update access", "error");
+    } finally {
+      setChangingRole(null);
+    }
+  }
+
+  const canAdminister = currentRole === "owner" || currentRole === "admin";
 
   useEffect(() => {
     void refresh();
@@ -43,19 +78,30 @@ export function DeviceManager(): JSX.Element {
   return (
     <div class="min-h-0 flex-1 overflow-y-auto p-6 max-md:p-[14px]">
       <div class="mx-auto flex max-w-[640px] flex-col gap-[18px]">
-        <div class="flex items-center justify-between gap-3">
+        <div class="flex items-start justify-between gap-4">
           <div>
             <div class="mb-1 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-accent">
               Workspace
             </div>
             <h2 class="text-[18px] font-semibold">Linked devices</h2>
-            <p class="text-[12.5px] text-muted">Everyone with access to this encrypted space.</p>
+            <p class="max-w-[420px] text-[12.5px] leading-5 text-muted">
+              Control which of your devices can connect and manage this encrypted space.
+            </p>
           </div>
-          <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
-            <Plus />
-            Add device
-          </Button>
+          {canAdminister && (
+            <Button class="flex-none" variant="primary" size="sm" onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" />
+              Add device
+            </Button>
+          )}
         </div>
+
+        {!loading && !canAdminister && (
+          <div class="flex gap-3 rounded-card border border-line bg-surface-2 px-4 py-3.5 text-[12.5px] leading-5 text-subtle">
+            <UserRound class="mt-0.5 size-4 flex-none text-muted" aria-hidden="true" />
+            <p>This device is a member. Ask the space owner to add, remove, or manage devices.</p>
+          </div>
+        )}
 
         {loading ? (
           <div class="grid place-items-center py-16">
@@ -72,8 +118,9 @@ export function DeviceManager(): JSX.Element {
                   {initials(device.name)}
                 </div>
                 <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2 text-[14.5px] font-medium">
+                  <div class="flex flex-wrap items-center gap-2 text-[14.5px] font-medium">
                     <span class="truncate">{device.name}</span>
+                    <RoleBadge role={device.role} />
                     {device.id === myId && (
                       <span class="flex-none rounded-full bg-accent-soft px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.1em] text-accent">
                         This device
@@ -85,9 +132,31 @@ export function DeviceManager(): JSX.Element {
                   </div>
                 </div>
                 {device.id !== myId && (
-                  <Button variant="danger" size="sm" onClick={() => setPendingRevoke(device)}>
-                    Revoke
-                  </Button>
+                  <div class="flex flex-none items-center gap-2">
+                    {currentRole === "owner" && device.role !== "owner" && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={changingRole === device.id}
+                        onClick={() => setPendingRoleChange(device)}
+                      >
+                        {changingRole === device.id ? (
+                          <Spinner />
+                        ) : device.role === "admin" ? (
+                          "Make member"
+                        ) : (
+                          "Make admin"
+                        )}
+                      </Button>
+                    )}
+                    {canAdminister &&
+                      device.role !== "owner" &&
+                      (currentRole === "owner" || device.role === "member") && (
+                        <Button variant="danger" size="sm" onClick={() => setPendingRevoke(device)}>
+                          Revoke
+                        </Button>
+                      )}
+                  </div>
                 )}
               </div>
             ))}
@@ -128,7 +197,69 @@ export function DeviceManager(): JSX.Element {
           </div>
         </Modal>
       )}
+
+      {pendingRoleChange && (
+        <Modal
+          title={
+            pendingRoleChange.role === "admin" ? "Remove admin access?" : "Make administrator?"
+          }
+          onClose={() => setPendingRoleChange(null)}
+        >
+          <div class="flex gap-3 rounded-card border border-line bg-surface-2 p-3.5">
+            <ShieldCheck class="mt-0.5 size-[19px] flex-none text-accent" aria-hidden="true" />
+            <p class="text-[13.5px] leading-5 text-subtle">
+              {pendingRoleChange.role === "admin" ? (
+                <>
+                  <strong class="text-ink">{pendingRoleChange.name}</strong> will remain connected,
+                  but will no longer be able to add or revoke devices.
+                </>
+              ) : (
+                <>
+                  <strong class="text-ink">{pendingRoleChange.name}</strong> will be able to add new
+                  devices and revoke members. Only you, the owner, can manage administrators.
+                </>
+              )}
+            </p>
+          </div>
+          <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+            <Button
+              class="sm:w-auto"
+              variant="secondary"
+              onClick={() => setPendingRoleChange(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              class="sm:w-auto"
+              variant={pendingRoleChange.role === "admin" ? "secondary" : "primary"}
+              onClick={() => void changeRole(pendingRoleChange)}
+            >
+              {pendingRoleChange.role === "admin" ? "Make member" : "Make admin"}
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+}
+
+function RoleBadge({ role }: { role: DeviceRole }): JSX.Element {
+  const Icon = role === "owner" ? Crown : role === "admin" ? ShieldCheck : UserRound;
+  const label = role === "owner" ? "Owner" : role === "admin" ? "Admin" : "Member";
+  return (
+    <span
+      class={cx(
+        "inline-flex flex-none items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.08em]",
+        role === "owner"
+          ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+          : role === "admin"
+            ? "bg-accent-soft text-accent"
+            : "bg-surface-3 text-muted",
+      )}
+    >
+      <Icon class="size-3" aria-hidden="true" />
+      {label}
+    </span>
   );
 }
 

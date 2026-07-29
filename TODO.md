@@ -19,6 +19,12 @@ Biggest remaining items (need design decisions, don't do blindly):
   before migration `0003_device_tokens.sql` must be linked again once. This is an
   intentional early-WIP migration rather than retaining the impersonable shared token.
 
+- **Owner/admin/member authorization is now implemented.** The first device in a new
+  space is its owner; migration `0004_device_roles.sql` assigns existing spaces to their
+  oldest active device. Owners can appoint/remove admins and revoke any non-owner device;
+  admins can add devices and revoke members; members cannot mutate membership. Ownership
+  transfer is deliberately deferred until it has a dedicated confirmation flow.
+
 - **`GroupKey` rotation → real revocation (forward secrecy).** 🔴🏗️ Rotate **only the
   `GroupKey`**, leaving every remaining device token in place — so no valid device is 401'd
   or has to re-pair. The revoking device wraps the new key per remaining device (ECIES, using their
@@ -34,6 +40,12 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 1. Security
 
+- [x] ~~🔴🛠️ **Every device could add or revoke every other device.**~~ Added explicit
+  `owner` / `admin` / `member` roles enforced by the Worker, not just the UI. New spaces
+  make their creator the owner; existing spaces deterministically assign the oldest active
+  device. Only owners manage admin access, admins can add devices and revoke members, and
+  nobody can revoke the owner or their current device. A future ownership-transfer flow
+  must require explicit confirmation rather than overloading the role endpoint.
 - [x] ~~🔴⚡ **Cross-group revocation bypass in `completePairing`.**~~ The `INSERT … ON CONFLICT(id) DO UPDATE SET revoked_at = NULL` matched on the global device PK without checking the group, so an ex-member (who still holds the group token, which is never rotated) could **un-revoke their own device in another group** by reserving a pairing slot with that device id from a throwaway group. Fixed in `apps/worker/src/routes/pairing.ts`: reject a device id already registered to a different group, plus a `WHERE devices.group_id = excluded.group_id` guard on the upsert (defense-in-depth against TOCTOU).
 - [ ] 🔴🏗️ **Revocation does NOT rotate the `GroupKey`.** `apps/worker/src/routes/devices.ts` only sets `revoked_at`. A revoked device keeps the `GroupKey` locally forever and can decrypt any ciphertext it already saw/exfiltrated — and any *future* ciphertext it captures by some route other than the now-denied API. Real revocation = rotate the `GroupKey`: the revoking device generates a new key, wraps it for each remaining device via ECIES (their published ECDH pubkey) and deposits the blobs on the server; each device adopts the new key on its next sync. **No need to rotate valid device tokens or re-pair** — offline devices can self-heal on reconnect (keep each wrapped blob until acked). Biggest remaining cryptographic limitation.
 - [x] ~~🟠🛠️ **Single shared group token + self-asserted `X-Device-Id`.**~~ Replaced with
@@ -105,6 +117,9 @@ Biggest remaining items (need design decisions, don't do blindly):
 ## 7. Features (roadmap "next level")
 
 - [ ] 🔴🏗️ `GroupKey` rotation → real revocation (rotate the key only, token intact; async re-key via per-device wrapped blobs, no re-pairing). See §1.
+- [ ] 🟡🛠️ **Ownership transfer and recovery.** Add an explicit, confirmed hand-off to
+  another admin before the owner leaves, then design a recovery path for a permanently lost
+  owner (likely tied to the encrypted recovery export) without weakening membership security.
 - [ ] 🟠🏗️ Real-time delivery (WebSocket/Durable Objects) replacing polling.
 - [ ] 🟠🏗️ **Web Push**: new-message notifications with the app closed (fits the async model perfectly).
 - [ ] 🟠🛠️ **At-rest lock** (PIN/passphrase/WebAuthn) wrapping the `GroupKey`.
