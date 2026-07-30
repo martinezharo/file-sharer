@@ -51,9 +51,18 @@ branch that adds one can't leave you with a schema the API doesn't match. See
 ## Deploy
 
 ```bash
-pnpm db:migrate:remote
-pnpm deploy         # builds the PWA and deploys the Worker (serves PWA + API)
+pnpm deploy         # migrates D1, builds the PWA, deploys the Worker (serves PWA + API)
 ```
 
-Remote migrations stay a deliberate step: they run against live data, and a rollout may
-need them applied before or after the Worker depending on the change.
+Migrations run **before** the Worker goes out, so the new schema is already there when the
+new code starts serving. That is the safe order as long as a migration only adds things:
+the old code keeps working against a wider schema during the seconds between both steps.
+
+A migration that removes or renames something breaks that assumption — the running Worker
+would query a column that just disappeared. Split those over two deploys: add the new
+shape and stop using the old one first, drop it in the next one.
+
+`scripts/check-migrations.mts` enforces that. It inspects the migrations still pending on
+the remote D1 and stops the deploy on a `DROP`, a `RENAME` or a `NOT NULL` column without
+a default, pointing at the offending statement. Override with
+`ALLOW_BREAKING_MIGRATIONS=1` when the downtime is deliberate.
