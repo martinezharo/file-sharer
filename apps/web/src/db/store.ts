@@ -22,8 +22,13 @@ const DB_VERSION = 1;
  * IndexedDB because it has no access to the page's signals.
  */
 export const META_SESSION = "session";
+/** Pre-rotation single GroupKey. Read once, then folded into META_KEYRING. */
 export const META_GROUP_KEY = "groupKey";
+/** Every GroupKey epoch this device holds (crypto/keyring.ts). */
+export const META_KEYRING = "keyring";
 export const META_DEVICE_KEYPAIR = "deviceKeyPair";
+/** Trust-on-first-use pins of other devices' ECDH public keys (crypto/pinning.ts). */
+export const META_DEVICE_PINS = "devicePins";
 
 let dbPromise: Promise<IDBPDatabase<FileSharerDB>> | null = null;
 
@@ -110,9 +115,5 @@ export async function deleteFile(r2Key: string): Promise<void> {
 /** Wipe everything (used on logout / space reset). */
 export async function clearAll(): Promise<void> {
   const database = await db();
-  await Promise.all([
-    database.clear("meta"),
-    database.clear("messages"),
-    database.clear("files"),
-  ]);
+  await Promise.all([database.clear("meta"), database.clear("messages"), database.clear("files")]);
 }

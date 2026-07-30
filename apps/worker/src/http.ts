@@ -47,6 +47,14 @@ export function requireSha256Hex(value: unknown, field: string): string {
   return s;
 }
 
+/** Validate a client-provided integer within an inclusive range. */
+export function requireInt(value: unknown, field: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw new ApiError("bad_request", `Missing or invalid integer field: ${field}`);
+  }
+  return value;
+}
+
 /**
  * Validate a client-provided opaque id (R2 keys, ids). Restricts to URL-safe
  * characters so it is always safe as a single path segment / object key.

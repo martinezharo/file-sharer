@@ -8,9 +8,10 @@ import type {
 import { authenticate } from "../auth";
 import { activeDeviceIds, deleteMessageById, fileStorageKey } from "../db";
 import { ApiError, json } from "../errors";
-import { optionalString, readJson, requireId } from "../http";
+import { optionalString, readJson, requireId, requireInt } from "../http";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
+import { pendingKeysFor } from "./keys";
 
 /** Create message metadata + one pending delivery row per other active device. */
 export async function sendMessage(c: RouteContext): Promise<Response> {
@@ -19,9 +20,11 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   const body = await readJson<SendMessageRequest>(c.request);
 
   const id = requireId(body.id, "id");
+  const keyEpoch = requireInt(body.keyEpoch, "keyEpoch", 1, Number.MAX_SAFE_INTEGER);
   const encryptedPayload = optionalString(body.encryptedPayload, "encryptedPayload", 1_000_000);
   const iv = optionalString(body.iv, "iv", 128);
-  const fileR2Key = body.fileR2Key === undefined ? undefined : requireId(body.fileR2Key, "fileR2Key");
+  const fileR2Key =
+    body.fileR2Key === undefined ? undefined : requireId(body.fileR2Key, "fileR2Key");
   const fileIv = optionalString(body.fileIv, "fileIv", 128);
   const fileMeta = optionalString(body.fileMeta, "fileMeta", 8192);
   const fileMetaIv = optionalString(body.fileMetaIv, "fileMetaIv", 128);
@@ -36,8 +39,35 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     throw new ApiError("bad_request", "Missing fileIv for file payload");
   }
 
+  // Friendly-path duplicate check; the racy window between this SELECT and
+  // the INSERT below is closed by mapping the unique-constraint error to the
+  // same `conflict` (the outbox treats it as "already sent").
+  //
+  // This runs *before* the epoch check on purpose: a resent message that the
+  // server already stored must resolve as `conflict`, so the client leaves the
+  // registered ciphertext alone instead of re-encrypting it under a newer key
+  // and overwriting its R2 object with bytes the stored IV/epoch don't match.
+  const existing = await c.env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(id).first();
+  if (existing) {
+    throw new ApiError("conflict", "Message id already exists");
+  }
+
+  // Refuse content encrypted under a superseded key, before anything is stored
+  // or dropped. Without this, everything sent between a revocation and the
+  // sender noticing the rotation would still be readable by the device that was
+  // just revoked. Checked ahead of the no-recipient short-circuit below so a
+  // stale sender always hears about it, whoever else is in the space.
+  if (keyEpoch !== auth.groupKeyEpoch) {
+    throw new ApiError(
+      "key_rotated",
+      "The space key has rotated; encrypt this message with the new key",
+    );
+  }
+
   // Recipients are every active device except the sender.
-  const recipients = (await activeDeviceIds(c.env, auth.groupId)).filter((d) => d !== auth.deviceId);
+  const recipients = (await activeDeviceIds(c.env, auth.groupId)).filter(
+    (d) => d !== auth.deviceId,
+  );
 
   // No recipients: nothing to deliver. Drop any uploaded file and skip storage
   // so the server keeps nothing around.
@@ -54,21 +84,13 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     }
   }
 
-  // Friendly-path duplicate check; the racy window between this SELECT and
-  // the INSERT below is closed by mapping the unique-constraint error to the
-  // same `conflict` (the outbox treats it as "already sent").
-  const existing = await c.env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(id).first();
-  if (existing) {
-    throw new ApiError("conflict", "Message id already exists");
-  }
-
   const now = Date.now();
   const stmts = [
     c.env.DB.prepare(
       `INSERT INTO messages
          (id, group_id, sender_device_id, encrypted_payload, iv,
-          file_r2_key, file_iv, file_meta, file_meta_iv, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          file_r2_key, file_iv, file_meta, file_meta_iv, key_epoch, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id,
       auth.groupId,
@@ -79,6 +101,7 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
       fileIv ?? null,
       fileMeta ?? null,
       fileMetaIv ?? null,
+      keyEpoch,
       now,
     ),
     ...recipients.map((deviceId) =>
@@ -99,7 +122,12 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   return json({ ok: true } satisfies SendMessageResponse);
 }
 
-/** Messages still pending download for the calling device. */
+/**
+ * One poll returns everything the client needs to stay in sync: pending
+ * messages, any rotated GroupKey it has not adopted yet, and whether a rotation
+ * is still owed. Bundling them keeps the rotation protocol free of extra
+ * round-trips on the app's hottest request.
+ */
 export async function pendingMessages(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   const sinceRaw = c.url.searchParams.get("since");
@@ -110,9 +138,11 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
 
   const rows = await c.env.DB.prepare(
     `SELECT m.id AS id,
+            m.key_epoch AS keyEpoch,
             m.sender_device_id AS senderDeviceId,
             d.name_enc AS senderNameEnc,
             d.name_iv AS senderNameIv,
+            d.name_key_epoch AS senderNameEpoch,
             m.encrypted_payload AS encryptedPayload,
             m.iv AS iv,
             m.file_r2_key AS fileR2Key,
@@ -132,7 +162,12 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
     .bind(auth.deviceId, since)
     .all<PendingMessage>();
 
-  return json({ messages: rows.results } satisfies PendingMessagesResponse);
+  return json({
+    messages: rows.results,
+    keys: await pendingKeysFor(c.env, auth.groupId, auth.deviceId),
+    keyEpoch: auth.groupKeyEpoch,
+    rotationPending: auth.rotationPending,
+  } satisfies PendingMessagesResponse);
 }
 
 /**
@@ -148,9 +183,7 @@ export async function ackMessage(c: RouteContext): Promise<Response> {
   // operate on any messageId: a caller with a valid token for group A who
   // guesses (or enumerates) a messageId from group B would see "0 pending"
   // and trigger the cascade delete. Verify group ownership first.
-  const owned = await c.env.DB.prepare(
-    "SELECT id FROM messages WHERE id = ? AND group_id = ?",
-  )
+  const owned = await c.env.DB.prepare("SELECT id FROM messages WHERE id = ? AND group_id = ?")
     .bind(messageId, auth.groupId)
     .first<{ id: string }>();
   if (!owned) {

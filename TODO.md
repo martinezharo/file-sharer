@@ -25,14 +25,16 @@ Biggest remaining items (need design decisions, don't do blindly):
   admins can add devices and revoke members; members cannot mutate membership. Ownership
   transfer is deliberately deferred until it has a dedicated confirmation flow.
 
-- **`GroupKey` rotation → real revocation (forward secrecy).** 🔴🏗️ Rotate **only the
-  `GroupKey`**, leaving every remaining device token in place — so no valid device is 401'd
-  or has to re-pair. The revoking device wraps the new key per remaining device (ECIES, using their
-  published ECDH pubkey) and deposits the blobs server-side; each device adopts it on its next
-  sync. Offline devices self-heal on reconnect — keep each wrapped blob until acked. Design the
-  re-keying protocol first.
+- **`GroupKey` rotation on revocation is now implemented.** Keys are versioned by epoch
+  (`0005_key_rotation.sql`); revoking flags the space as owing a rotation, and any active
+  device that polls completes it under a compare-and-swap on `groups.key_epoch`. Every device
+  keeps its old epochs, so history stays readable, and no token is touched, so nothing
+  re-pairs. Existing spaces default to epoch 1 and are unaffected until their first rotation.
+
 - **Sender signing** (authenticity). 🟠🏗️ Needs a second signing keypair per device and a
-  signed message format.
+  signed message format. Now also the fix for the one rotation trade-off left open: the
+  device roster a rotation wraps keys for is currently trusted on first sight (TOFU pins in
+  `apps/web/src/crypto/pinning.ts`) rather than signed.
 - **Real-time delivery (WebSocket/Durable Objects)** replacing the 8 s poll. 🟠🏗️
 - **At-rest lock (PIN/WebAuthn)** + **encrypted recovery export** + **Web Push**. 🟠🏗️ See §7.
 
@@ -47,7 +49,21 @@ Biggest remaining items (need design decisions, don't do blindly):
   nobody can revoke the owner or their current device. A future ownership-transfer flow
   must require explicit confirmation rather than overloading the role endpoint.
 - [x] ~~🔴⚡ **Cross-group revocation bypass in `completePairing`.**~~ The `INSERT … ON CONFLICT(id) DO UPDATE SET revoked_at = NULL` matched on the global device PK without checking the group, so an ex-member (who still holds the group token, which is never rotated) could **un-revoke their own device in another group** by reserving a pairing slot with that device id from a throwaway group. Fixed in `apps/worker/src/routes/pairing.ts`: reject a device id already registered to a different group, plus a `WHERE devices.group_id = excluded.group_id` guard on the upsert (defense-in-depth against TOCTOU).
-- [ ] 🔴🏗️ **Revocation does NOT rotate the `GroupKey`.** `apps/worker/src/routes/devices.ts` only sets `revoked_at`. A revoked device keeps the `GroupKey` locally forever and can decrypt any ciphertext it already saw/exfiltrated — and any *future* ciphertext it captures by some route other than the now-denied API. Real revocation = rotate the `GroupKey`: the revoking device generates a new key, wraps it for each remaining device via ECIES (their published ECDH pubkey) and deposits the blobs on the server; each device adopts the new key on its next sync. **No need to rotate valid device tokens or re-pair** — offline devices can self-heal on reconnect (keep each wrapped blob until acked). Biggest remaining cryptographic limitation.
+- [x] ~~🔴🏗️ **Revocation does NOT rotate the `GroupKey`.**~~ Implemented. Keys are now versioned
+  by epoch: `groups.key_epoch` is the space's current one, every device keeps a local keyring of
+  every epoch it has held (`apps/web/src/crypto/keyring.ts`) and every stored ciphertext carries
+  the epoch that opens it (`messages.key_epoch`, `devices.name_key_epoch`). Revoking sets
+  `groups.rotation_pending`; the revoking device rotates immediately and, if it dies mid-flight,
+  the next active device to poll finishes the job — so the work is owed by the *space*, not by
+  whoever pressed the button. The rotating device mints the key, wraps it per remaining device
+  (ECIES, AAD-bound to group+epoch+recipient) and deposits the blobs, which the server drops on
+  ack. Trade-offs deliberately closed: **no re-pairing and no 401s** (tokens untouched),
+  **history stays readable** (old epochs kept), **offline devices self-heal** (blob waits),
+  **concurrent rotations can't split-brain** (every statement guarded on the previous epoch, CAS
+  last), and **no exposure window** — the server rejects any message encrypted under a
+  superseded epoch with `key_rotated`, and the client re-encrypts under the new key. What
+  remains, unavoidably: the revoked device keeps what it already saw, and the roster a rotation
+  wraps for is TOFU-pinned rather than signed (see §0 sender signing).
 - [x] ~~🟠🛠️ **Single shared group token + self-asserted `X-Device-Id`.**~~ Replaced with
   independent random bearer tokens whose hashes live on each device row. The server derives
   both device and group identity from the token, and revocation immediately rejects only that
@@ -66,7 +82,9 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 2. Privacy
 
-- [ ] 🔴🏗️ Key rotation on revocation (see §1) — without it there is no real "forget".
+- [x] ~~🔴🏗️ Key rotation on revocation (see §1) — without it there is no real "forget".~~ Done.
+  "Forget" is now honest going forward: a revoked device can't read anything sent after it left.
+  It is still not retroactive, and the UI says so rather than implying otherwise.
 - [ ] 🟠🏗️ **No client at-rest encryption.** IndexedDB stores messages, decrypted files, the `GroupKey` (as a `CryptoKey`) and the `deviceAuthToken` in clear. Anyone with device access (or an XSS) gets everything. Add an optional PIN/passphrase lock (derive a wrapping key with PBKDF2/Argon2) or WebAuthn/passkey to wrap the `GroupKey` at rest.
 - [ ] 🟡🏗️ **Server-observable metadata:** sizes (via `Content-Length` and metadata length), timing, device count. For sizes, consider padding the ciphertext to buckets. Explicitly document what the server sees.
 
@@ -94,7 +112,9 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 - [ ] 🟡🛠️ **`processIncoming` mixes responsibilities** (create local, download, ack). Split into smaller functions.
 - [ ] 🟡🛠️ **`actions.ts` is a grab-bag** (onboarding + pairing + messaging + files + session). Split by domain.
-- [ ] 🔵⚡ **"Active group devices" query repeated** in `auth.ts`, `db.ts`, `devices.ts`. Centralize.
+- [x] ~~🔵⚡ **"Active group devices" query repeated** in `auth.ts`, `db.ts`, `devices.ts`.~~ Centralized
+  as `activeDevices()` in `apps/worker/src/db.ts`, which now also feeds the key-rotation recipient
+  list; `activeDeviceIds()` derives from it.
 - [ ] 🔵⚡ **`sendFileMessages` is sequential.** Acceptable to avoid overload, but could parallelize with a concurrency limit.
 
 ## 6. UI / UX / Accessibility
@@ -122,7 +142,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 7. Features (roadmap "next level")
 
-- [ ] 🔴🏗️ `GroupKey` rotation → real revocation (rotate the key only, token intact; async re-key via per-device wrapped blobs, no re-pairing). See §1.
+- [x] ~~🔴🏗️ `GroupKey` rotation → real revocation (rotate the key only, token intact; async re-key via per-device wrapped blobs, no re-pairing).~~ Done, see §1.
 - [ ] 🟡🛠️ **Ownership transfer and recovery.** Add an explicit, confirmed hand-off to
   another admin before the owner leaves, then design a recovery path for a permanently lost
   owner (likely tied to the encrypted recovery export) without weakening membership security.
@@ -138,6 +158,6 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 8. Documentation / observability
 
-- [ ] 🟡⚡ Explicitly document the **threat model** (what the server sees, what it does NOT protect: metadata, sender authenticity, replay) in the README.
-- [ ] 🔵⚡ Document the planned **real revocation process** and its current limits (there's already a note in `devices.ts`; bring it to the README).
+- [ ] 🟡⚡ Explicitly document the **threat model** (what the server sees, what it does NOT protect: metadata, sender authenticity, replay) in the README. Partially done: the README now has a "What this does *not* protect against" section covering rotation's limits, sender authenticity, replay and metadata; it still needs the positive half (exactly what the server does see).
+- [x] ~~🔵⚡ Document the **real revocation process** and its current limits.~~ In the README's crypto model, alongside the honest list of what rotation does not cover.
 - [ ] 🔵⚡ Review that the Worker's observability (`observability.enabled`) **doesn't log** sensitive material (today `console.error` for unhandled errors; correct, keep watching).

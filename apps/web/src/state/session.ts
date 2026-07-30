@@ -1,17 +1,16 @@
 import { signal } from "@preact/signals";
 import type { Auth } from "../api/client";
-import {
-  clearAll,
-  META_DEVICE_KEYPAIR,
-  META_GROUP_KEY,
-  META_SESSION,
-  metaGet,
-  metaSet,
-} from "../db/store";
+import { type Keyring, loadKeyring, saveKeyring } from "../crypto/keyring";
+import { META_DEVICE_KEYPAIR, META_SESSION, clearAll, metaGet, metaSet } from "../db/store";
 import type { Session } from "../types";
 
 export const session = signal<Session | null>(null);
-export const groupKey = signal<CryptoKey | null>(null);
+/**
+ * Every GroupKey epoch this device holds. Not a single key: revoking a device
+ * rotates the key, and the old epochs are kept so existing history and
+ * in-flight content stay readable (crypto/keyring.ts).
+ */
+export const keyring = signal<Keyring | null>(null);
 export const deviceKeyPair = signal<CryptoKeyPair | null>(null);
 
 /** True once the app has finished its initial load from IndexedDB. */
@@ -25,7 +24,6 @@ export const ready = signal(false);
 export const sessionRevoked = signal(false);
 
 const SESSION_KEY = META_SESSION;
-const GROUP_KEY = META_GROUP_KEY;
 const DEVICE_KEYPAIR_KEY = META_DEVICE_KEYPAIR;
 
 export function authHeaders(): Auth {
@@ -36,14 +34,14 @@ export function authHeaders(): Auth {
 
 /** Restore an existing session + keys from IndexedDB on startup. */
 export async function loadSession(): Promise<void> {
-  const [storedSession, storedGroupKey, storedKeyPair] = await Promise.all([
+  const [storedSession, storedKeyring, storedKeyPair] = await Promise.all([
     metaGet<Session>(SESSION_KEY),
-    metaGet<CryptoKey>(GROUP_KEY),
+    loadKeyring(),
     metaGet<CryptoKeyPair>(DEVICE_KEYPAIR_KEY),
   ]);
-  if (storedSession && storedGroupKey && storedKeyPair) {
+  if (storedSession && storedKeyring && storedKeyPair) {
     session.value = storedSession;
-    groupKey.value = storedGroupKey;
+    keyring.value = storedKeyring;
     deviceKeyPair.value = storedKeyPair;
   }
   ready.value = true;
@@ -51,25 +49,33 @@ export async function loadSession(): Promise<void> {
 
 export async function persistSession(
   newSession: Session,
-  newGroupKey: CryptoKey,
+  newKeyring: Keyring,
   newKeyPair: CryptoKeyPair,
 ): Promise<void> {
   await Promise.all([
     metaSet(SESSION_KEY, newSession),
-    metaSet(GROUP_KEY, newGroupKey),
+    saveKeyring(newKeyring),
     metaSet(DEVICE_KEYPAIR_KEY, newKeyPair),
   ]);
   session.value = newSession;
-  groupKey.value = newGroupKey;
+  keyring.value = newKeyring;
   deviceKeyPair.value = newKeyPair;
   sessionRevoked.value = false;
+}
+
+/**
+ * Mirror a keyring that was already persisted (adopted or rotated by the sync
+ * engine, which is context-neutral and cannot touch signals) into the UI.
+ */
+export function applyKeyring(updated: Keyring): void {
+  keyring.value = updated;
 }
 
 /** Leave the space and wipe all local data on this device. */
 export async function resetSession(): Promise<void> {
   await clearAll();
   session.value = null;
-  groupKey.value = null;
+  keyring.value = null;
   deviceKeyPair.value = null;
   sessionRevoked.value = false;
 }

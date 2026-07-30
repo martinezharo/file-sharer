@@ -2,12 +2,14 @@
  * End-to-end crypto core (Web Crypto API).
  *
  * Design:
- *  - GroupKey: AES-GCM 256. Encrypts every message/file. Created once by the
- *    first device and shared to others only via the ECIES pairing wrap below.
+ *  - GroupKey: AES-GCM 256. Encrypts every message/file. Created by the first
+ *    device and shared to others only via the ECIES wrap below. Revoking a
+ *    device rotates it, so keys are versioned by epoch and each device keeps
+ *    every epoch it has held (crypto/keyring.ts) to stay able to read history.
  *  - Device keypair: ECDH P-256. The private key is non-extractable.
- *  - Pairing wrap (ECIES): an ephemeral ECDH key + the recipient's public key
- *    derive a one-time AES-GCM key that encrypts a JSON package carrying the raw
- *    GroupKey, group auth token and group id.
+ *  - ECIES wrap: an ephemeral ECDH key + the recipient's public key derive a
+ *    one-time AES-GCM key that encrypts a JSON secret. Used for the pairing
+ *    package and for handing a rotated GroupKey to each remaining device.
  *
  * The server never sees plaintext, the GroupKey, or the group auth token.
  */
@@ -118,7 +120,13 @@ export async function exportPublicKey(key: CryptoKey): Promise<string> {
 }
 
 export function importPublicKey(spki: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey("spki", base64UrlToBuf(spki), { name: EC, namedCurve: CURVE }, true, []);
+  return crypto.subtle.importKey(
+    "spki",
+    base64UrlToBuf(spki),
+    { name: EC, namedCurve: CURVE },
+    true,
+    [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -135,26 +143,34 @@ function deriveSharedKey(privateKey: CryptoKey, peerPublicKey: CryptoKey): Promi
   );
 }
 
-export interface WrappedPairing {
+export interface WrappedSecret {
   /** base64url of JSON `{ iv, ct }`. */
   wrappedPackage: string;
   /** Ephemeral ECDH P-256 public key (base64url SPKI). */
   ephemeralPublicKey: string;
 }
 
-/** Encrypt the pairing payload for a recipient's public key. */
-export async function wrapPairingPackage(
+/**
+ * Encrypt a JSON secret so only the holder of `recipientPublicKey`'s private
+ * key can read it. Used for both hand-offs of the GroupKey: the pairing package
+ * and the per-device blobs of a key rotation.
+ *
+ * `context` is bound as AAD, so a blob is only decryptable in the exact place
+ * it was minted for — a rotation blob cannot be replayed at another device or
+ * epoch, and a pairing package cannot be moved to another slot.
+ */
+export async function wrapSecret(
   recipientPublicKey: CryptoKey,
-  payload: PairingPayload,
-  pairingId?: string,
-): Promise<WrappedPairing> {
+  payload: unknown,
+  context?: string,
+): Promise<WrappedSecret> {
   const ephemeral = await crypto.subtle.generateKey({ name: EC, namedCurve: CURVE }, false, [
     "deriveKey",
   ]);
   const sharedKey = await deriveSharedKey(ephemeral.privateKey, recipientPublicKey);
   const iv = randomIv();
   const ciphertext = await crypto.subtle.encrypt(
-    { name: AES, iv, additionalData: aad(pairingId && `pairing:${pairingId}`) },
+    { name: AES, iv, additionalData: aad(context) },
     sharedKey,
     new TextEncoder().encode(JSON.stringify(payload)),
   );
@@ -165,23 +181,52 @@ export async function wrapPairingPackage(
   };
 }
 
-/** Decrypt the pairing payload using this device's private key. */
-export async function unwrapPairingPackage(
+/** Decrypt a `wrapSecret` blob with this device's private key. */
+export async function unwrapSecret<T>(
   myPrivateKey: CryptoKey,
   ephemeralPublicKey: string,
   wrappedPackage: string,
-  pairingId?: string,
-): Promise<PairingPayload> {
+  context?: string,
+): Promise<T> {
   const ephemeralPublic = await importPublicKey(ephemeralPublicKey);
   const sharedKey = await deriveSharedKey(myPrivateKey, ephemeralPublic);
   const wrappedJson = new TextDecoder().decode(base64UrlToBuf(wrappedPackage));
   const { iv, ct } = JSON.parse(wrappedJson) as { iv: string; ct: string };
   const plaintext = await crypto.subtle.decrypt(
-    { name: AES, iv: base64UrlToBuf(iv), additionalData: aad(pairingId && `pairing:${pairingId}`) },
+    { name: AES, iv: base64UrlToBuf(iv), additionalData: aad(context) },
     sharedKey,
     base64UrlToBuf(ct),
   );
-  return JSON.parse(new TextDecoder().decode(plaintext)) as PairingPayload;
+  return JSON.parse(new TextDecoder().decode(plaintext)) as T;
+}
+
+/** AAD context binding a rotated-key blob to one recipient and one epoch. */
+export function rekeyContext(groupId: string, epoch: number, deviceId: string): string {
+  return `rekey:${groupId}:${epoch}:${deviceId}`;
+}
+
+/** Encrypt the pairing payload for a recipient's public key. */
+export function wrapPairingPackage(
+  recipientPublicKey: CryptoKey,
+  payload: PairingPayload,
+  pairingId?: string,
+): Promise<WrappedSecret> {
+  return wrapSecret(recipientPublicKey, payload, pairingId && `pairing:${pairingId}`);
+}
+
+/** Decrypt the pairing payload using this device's private key. */
+export function unwrapPairingPackage(
+  myPrivateKey: CryptoKey,
+  ephemeralPublicKey: string,
+  wrappedPackage: string,
+  pairingId?: string,
+): Promise<PairingPayload> {
+  return unwrapSecret<PairingPayload>(
+    myPrivateKey,
+    ephemeralPublicKey,
+    wrappedPackage,
+    pairingId && `pairing:${pairingId}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,12 @@
 import {
   type AssignableDeviceRole,
   type DeviceRole,
+  INITIAL_KEY_EPOCH,
   MAX_FILE_SIZE,
   type PairingQrPayload,
 } from "@file-sharer/shared";
 import { signal } from "@preact/signals";
-import { api, NetworkError } from "./api/client";
+import { NetworkError, api } from "./api/client";
 import {
   decryptName,
   encryptName,
@@ -21,6 +22,8 @@ import {
   unwrapPairingPackage,
   wrapPairingPackage,
 } from "./crypto/crypto";
+import { createKeyring, currentKey, keyForEpoch } from "./crypto/keyring";
+import { pinDeviceKey, reconcileDeviceKeys } from "./crypto/pinning";
 import {
   deleteFile,
   getFile,
@@ -31,8 +34,9 @@ import {
 } from "./db/store";
 import { applyMessageUpdate, loadMessages, removeMessage, upsertMessage } from "./state/messages";
 import {
+  applyKeyring,
   authHeaders,
-  groupKey,
+  keyring,
   persistSession,
   resetSession,
   session,
@@ -40,6 +44,7 @@ import {
 } from "./state/session";
 import { showToast, view } from "./state/ui";
 import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
+import { DeviceKeyMismatchError, rotateGroupKey } from "./sync/rekey";
 import { startSync, stopSync, syncNow } from "./sync/sync";
 import type { FileRef, LinkingState, LocalMessage, Session } from "./types";
 
@@ -75,7 +80,7 @@ export async function createSpace(deviceName: string): Promise<void> {
   });
 
   const newSession: Session = { groupId, deviceId, deviceName, deviceAuthToken: token };
-  await persistSession(newSession, newGroupKey, keyPair);
+  await persistSession(newSession, createKeyring(newGroupKey, INITIAL_KEY_EPOCH), keyPair);
   await loadMessages();
   startSync();
 }
@@ -157,7 +162,9 @@ async function pollLink(
       deviceName: payload.deviceName,
       deviceAuthToken: recovered.deviceAuthToken,
     };
-    await persistSession(newSession, recoveredGroupKey, keyPair);
+    // The space may have rotated its key long before this device existed, so
+    // the keyring starts at the epoch it was handed, not at 1.
+    await persistSession(newSession, createKeyring(recoveredGroupKey, recovered.keyEpoch), keyPair);
     await metaDelete("pendingPairing");
     // Best-effort: the slot is already TTL-reaped by cron, this just avoids
     // leaving the (encrypted) package reachable until then.
@@ -191,8 +198,9 @@ export async function cancelLinking(): Promise<void> {
 
 export async function addDeviceFromQr(qrText: string): Promise<void> {
   const currentSession = session.value;
-  const currentGroupKey = groupKey.value;
-  if (!currentSession || !currentGroupKey) throw new Error("Not signed in");
+  const ring = keyring.value;
+  if (!currentSession || !ring) throw new Error("Not signed in");
+  const currentGroupKey = currentKey(ring);
 
   let payload: PairingQrPayload;
   try {
@@ -210,6 +218,7 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
     recipientPublicKey,
     {
       groupKey: await exportGroupKey(currentGroupKey),
+      keyEpoch: ring.current,
       deviceAuthToken,
       groupId: currentSession.groupId,
     },
@@ -228,9 +237,15 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
       encryptedName: name.ciphertext,
       nameIv: name.iv,
       deviceAuthTokenHash: await sha256Hex(deviceAuthToken),
+      keyEpoch: ring.current,
     },
     authHeaders(),
   );
+
+  // The QR was read out-of-band, so this is the one moment we learn a device's
+  // public key from a channel the server cannot touch. Pin it: a later rotation
+  // refuses to wrap the new key for a device whose key changed since.
+  await pinDeviceKey(payload.deviceId, payload.publicKey);
 }
 
 /** Fetch the group's devices and decrypt their names for display. */
@@ -239,35 +254,81 @@ export interface DeviceView {
   name: string;
   createdAt: number;
   role: DeviceRole;
+  /** False while this device still has to pick up the latest key rotation. */
+  keyUpToDate: boolean;
 }
 
 export interface DeviceManagementView {
   devices: DeviceView[];
   currentRole: DeviceRole;
+  /** A revocation is still waiting for its key rotation to land. */
+  rotationPending: boolean;
 }
 
 export async function listDevicesDecrypted(): Promise<DeviceManagementView> {
-  const key = groupKey.value;
-  if (!key) throw new Error("Not signed in");
-  const { devices, currentRole } = await api.listDevices(authHeaders());
+  const ring = keyring.value;
+  if (!ring) throw new Error("Not signed in");
+  const { devices, currentRole, keyEpoch, rotationPending } = await api.listDevices(authHeaders());
+  // Seeing the roster is also how a device learns the keys of members it did
+  // not add itself, so this is where those get pinned (see crypto/pinning.ts).
+  await reconcileDeviceKeys(devices);
   return {
     currentRole,
+    rotationPending,
     devices: await Promise.all(
-      devices.map(async (d) => ({
-        id: d.id,
-        createdAt: d.createdAt,
-        role: d.role,
-        name:
-          d.encryptedName && d.nameIv
-            ? await decryptName(key, d.encryptedName, d.nameIv, d.id).catch(() => d.id)
-            : d.id,
-      })),
+      devices.map(async (d) => {
+        // A name is encrypted once, when the device joins, so it can predate
+        // the current epoch by any number of rotations.
+        const nameKey = keyForEpoch(ring, d.nameKeyEpoch);
+        return {
+          id: d.id,
+          createdAt: d.createdAt,
+          role: d.role,
+          keyUpToDate: d.keyEpoch >= keyEpoch,
+          name:
+            nameKey && d.encryptedName && d.nameIv
+              ? await decryptName(nameKey, d.encryptedName, d.nameIv, d.id).catch(() => d.id)
+              : d.id,
+        };
+      }),
     ),
   };
 }
 
-export async function revokeDevice(deviceId: string): Promise<void> {
+/**
+ * Revoke a device and immediately rotate the GroupKey, which is what actually
+ * ends its access: revocation alone only closes the API to it, leaving it able
+ * to decrypt any ciphertext it captures by other means.
+ *
+ * Rotation is reported separately because it can legitimately not happen here
+ * (offline, or another device won the race). The server remembers the space
+ * owes one, so the next device to poll finishes it — nothing is lost.
+ */
+export async function revokeDevice(deviceId: string): Promise<{ rotated: boolean }> {
   await api.revokeDevice(deviceId, authHeaders());
+  return { rotated: await rotateNow() };
+}
+
+/** Run the rotation this space owes, if this device can. */
+async function rotateNow(): Promise<boolean> {
+  const currentSession = session.value;
+  const ring = keyring.value;
+  if (!currentSession || !ring) return false;
+  try {
+    const rotated = await rotateGroupKey(
+      ring,
+      currentSession.groupId,
+      currentSession.deviceId,
+      authHeaders(),
+    );
+    if (!rotated) return false;
+    applyKeyring(rotated.keyring);
+    return true;
+  } catch (error) {
+    if (error instanceof DeviceKeyMismatchError) throw error;
+    // Anything else (offline, a racing rotation) is picked up by the sync loop.
+    return false;
+  }
 }
 
 export async function updateDeviceRole(
@@ -339,7 +400,7 @@ export async function sendFileMessages(files: readonly File[]): Promise<void> {
 
 async function queueFileMessages(files: readonly File[]): Promise<number> {
   const currentSession = session.value;
-  if (!currentSession || !groupKey.value) return 0;
+  if (!currentSession || !keyring.value) return 0;
 
   const accepted = files.filter((file) => file.size <= MAX_FILE_SIZE);
   if (accepted.length !== files.length) {

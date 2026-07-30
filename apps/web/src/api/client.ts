@@ -1,16 +1,19 @@
 import {
   AUTH_FAILURE_CODES,
+  type AckKeyResponse,
   type AckResponse,
   type ApiErrorBody,
   type ApiErrorCode,
+  type AssignableDeviceRole,
   type CreateGroupRequest,
   type CreateGroupResponse,
   type DevicesListResponse,
-  type AssignableDeviceRole,
   type PairingCompleteBody,
   type PairingPollResponse,
   type PairingRequestBody,
   type PendingMessagesResponse,
+  type RotateKeyRequest,
+  type RotateKeyResponse,
   type SendMessageRequest,
 } from "@file-sharer/shared";
 
@@ -212,6 +215,14 @@ export const api = {
   async downloadFile(r2Key: string, auth: Auth): Promise<ArrayBuffer> {
     const response = await rawRequest("GET", `/files/${r2Key}`, { auth, retries: 1 });
     return response.arrayBuffer();
+  },
+
+  rotateKey(body: RotateKeyRequest, auth: Auth): Promise<RotateKeyResponse> {
+    return jsonRequest("POST", "/keys/rotate", { jsonBody: body, auth });
+  },
+
+  ackKey(epoch: number, auth: Auth): Promise<AckKeyResponse> {
+    return jsonRequest("POST", `/keys/${epoch}/ack`, { auth });
   },
 
   listDevices(auth: Auth): Promise<DevicesListResponse> {

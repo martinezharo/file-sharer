@@ -36,6 +36,26 @@ same origin — one deploy, no CORS.
 - **Device roles**: the first device is the space owner, owners can appoint administrators,
   and regular members cannot add or revoke devices. Existing spaces assign ownership to
   their oldest active device during migration.
+- **Key rotation on revoke**: revoking a device also rotates the `GroupKey`, so the revoked
+  device cannot read anything sent afterwards even if it captures the ciphertext some other
+  way. Keys are versioned by *epoch*: the rotating device mints a new one, wraps it (ECIES)
+  for each remaining device's published ECDH key and deposits the blobs server-side; each
+  device adopts its blob on the next poll and the server drops it on ack. Nothing else
+  changes — device tokens are untouched (no re-pairing, no sign-out), every device keeps its
+  older epochs so history stays readable, and the server refuses any message encrypted under
+  a superseded epoch so there is no window during which the revoked device can still read.
+
+### What this does *not* protect against
+
+- **The past.** Rotation is forward-only: a revoked device keeps the epochs it already held,
+  so anything it already saw stays readable to it. Nothing can undo that.
+- **A malicious server swapping a device's public key.** A rotation wraps the new key for the
+  keys the server lists. Devices are pinned on first sight (out-of-band from the QR when you
+  add them yourself) and a rotation refuses to run if a pinned key changed, but a server can
+  still lie about a device you have never seen. The real fix is the signed device roster that
+  sender authenticity will bring.
+- **Sender authenticity, replay/reorder, and metadata** (sizes, timing, device count). See
+  `TODO.md`.
 
 ## Development
 

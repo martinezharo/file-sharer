@@ -10,18 +10,22 @@ const state = vi.hoisted(() => ({
     deviceName: "Phone",
     deviceAuthToken: "token",
   } satisfies Session,
-  key: {} as CryptoKey,
+  keyring: { current: 3, keys: new Map<number, CryptoKey>([[3, {} as CryptoKey]]) },
   uploadFile: vi.fn(),
   sendMessage: vi.fn(),
 }));
 
 vi.mock("../db/store", () => ({
   META_GROUP_KEY: "groupKey",
+  META_KEYRING: "keyring",
   META_SESSION: "session",
   allMessages: async () => [...state.messages.values()],
   getFile: async (key: string) => state.files.get(key),
   getMessage: async (id: string) => state.messages.get(id),
-  metaGet: async (key: string) => (key === "session" ? state.session : state.key),
+  metaGet: async (key: string) =>
+    key === "session" ? state.session : key === "keyring" ? state.keyring : undefined,
+  metaSet: async () => {},
+  metaDelete: async () => {},
   putMessage: async (message: LocalMessage) => {
     state.messages.set(message.id, message);
   },
@@ -105,6 +109,14 @@ describe("outbox batch handoff", () => {
     expect(state.messages.get(messages[0]!.id)?.status).toBe("sent");
     expect(state.messages.get(messages[1]!.id)?.status).toBe("queued");
     expect(state.messages.get(messages[2]!.id)?.status).toBe("queued");
+    // The sent message carries the epoch it was encrypted under, so a retry
+    // reproduces identical ciphertext instead of re-keying it.
+    expect(state.messages.get(messages[0]!.id)?.keyEpoch).toBe(3);
+    expect(state.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ keyEpoch: 3 }),
+      { token: "token" },
+      undefined,
+    );
   });
 
   it("re-queues the interrupted file and does not start the next one", async () => {

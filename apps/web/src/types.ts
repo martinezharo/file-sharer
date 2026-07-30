@@ -38,6 +38,12 @@ export interface LocalMessage {
   text?: string;
   file?: FileRef;
   createdAt: number;
+  /**
+   * GroupKey epoch this message's ciphertext is bound to. Pinned on the first
+   * send attempt so retries reproduce identical ciphertext, and cleared only
+   * when the server reports the key rotated underneath us.
+   */
+  keyEpoch?: number;
   /** Outgoing delivery status (incoming messages are always "sent"). */
   status: MessageStatus;
   fileState?: FileState;

@@ -1,12 +1,22 @@
 import { POLL_INTERVAL_MS, type PendingMessage } from "@file-sharer/shared";
 import { ApiError, type Auth, api } from "../api/client";
-import { getFile, putFile } from "../db/store";
 import { decryptFile, decryptJson, decryptName, decryptText } from "../crypto/crypto";
+import { type Keyring, keyForEpoch } from "../crypto/keyring";
+import { putFile } from "../db/store";
 import { applyMessageUpdate, getLocalMessage, upsertMessage } from "../state/messages";
-import { authHeaders, groupKey, session, sessionRevoked } from "../state/session";
+import {
+  applyKeyring,
+  authHeaders,
+  deviceKeyPair,
+  keyring,
+  session,
+  sessionRevoked,
+} from "../state/session";
+import { showToast } from "../state/ui";
 import type { FileRef, LocalMessage } from "../types";
 import { requestBackgroundSync, requestImmediateWorkerFlush } from "./background";
-import { flushQueuedOutbox, type OutboxUpdateBroadcast } from "./outbox";
+import { type OutboxUpdateBroadcast, flushQueuedOutbox } from "./outbox";
+import { DeviceKeyMismatchError, adoptPendingKeys, rotateGroupKey } from "./rekey";
 
 interface FileMeta {
   name: string;
@@ -46,6 +56,8 @@ function decryptBudgetExhausted(scope: string): boolean {
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
+/** A pinned device key changed: warn once, not on every poll. */
+let keyMismatchReported = false;
 let outboxAbortController: AbortController | null = null;
 const onFocus = (): void => void syncNow();
 const onVisibilityChange = (): void => {
@@ -87,8 +99,8 @@ export function stopSync(): void {
 export async function syncNow(): Promise<void> {
   if (running) return;
   const currentSession = session.value;
-  const key = groupKey.value;
-  if (!currentSession || !key) return;
+  let ring = keyring.value;
+  if (!currentSession || !ring) return;
   // The polling timer is already stopped when this flips, but syncNow is also
   // called directly (outbox flush, retries) and must not revive a dead session.
   if (sessionRevoked.value) return;
@@ -99,17 +111,26 @@ export async function syncNow(): Promise<void> {
 
     // Outbox flush is shared with the service worker (sync/outbox.ts); it
     // persists every state change itself, so only the signal needs updating.
-    const controller = new AbortController();
-    outboxAbortController = controller;
-    const flushed = await flushQueuedOutbox(applyMessageUpdate, { signal: controller.signal });
-    if (outboxAbortController === controller) outboxAbortController = null;
-    if (flushed.remaining > 0) {
-      // Couldn't send everything (offline/flaky network): let the browser
-      // retry from the service worker even if the app gets closed.
-      void requestBackgroundSync();
+    const flushed = await flushOutbox();
+
+    const { messages: pending, keys, rotationPending } = await api.pendingMessages(auth);
+
+    // Adopt any rotated key before touching messages: content sent after a
+    // rotation is encrypted with an epoch this device may be seeing for the
+    // first time right now.
+    const before = ring.current;
+    ring = await adoptKeys(ring, keys, currentSession.groupId, currentSession.deviceId, auth);
+
+    // A revocation is still owed its rotation. Every device that polls tries,
+    // and the server's compare-and-swap picks exactly one winner, so the work
+    // is never stranded on the device that happened to press "Revoke".
+    if (rotationPending) {
+      ring = await completeDueRotation(ring, currentSession.groupId, currentSession.deviceId, auth);
     }
 
-    const { messages: pending } = await api.pendingMessages(auth);
+    // A send rejected as `key_rotated` was queued again with its pinned epoch
+    // cleared; now that the new key is here, get it out without waiting a tick.
+    if (flushed.remaining > 0 && ring.current !== before) await flushOutbox();
 
     // First register every incoming message (decrypt just the metadata) so
     // all bubbles appear at once, then fetch the attachments concurrently
@@ -117,15 +138,16 @@ export async function syncNow(): Promise<void> {
     const registered: LocalMessage[] = [];
     for (const pendingMessage of pending) {
       try {
-        registered.push(await registerIncoming(pendingMessage, key));
+        registered.push(await registerIncoming(pendingMessage, ring));
       } catch {
         // Leave it pending; the next poll will retry.
       }
     }
 
+    const adopted = ring;
     await runWithConcurrency(registered, MAX_PARALLEL_DOWNLOADS, async (local) => {
       try {
-        await downloadAndAck(local, key, auth);
+        await downloadAndAck(local, adopted, auth);
       } catch {
         // Leave it pending; the next poll will retry.
       }
@@ -135,6 +157,57 @@ export async function syncNow(): Promise<void> {
   } finally {
     outboxAbortController = null;
     running = false;
+  }
+}
+
+async function flushOutbox(): Promise<{ remaining: number }> {
+  const controller = new AbortController();
+  outboxAbortController = controller;
+  const flushed = await flushQueuedOutbox(applyMessageUpdate, { signal: controller.signal });
+  if (outboxAbortController === controller) outboxAbortController = null;
+  if (flushed.remaining > 0) {
+    // Couldn't send everything (offline/flaky network): let the browser
+    // retry from the service worker even if the app gets closed.
+    void requestBackgroundSync();
+  }
+  return flushed;
+}
+
+/** Adopt keys delivered while this device was away, then mirror them into the UI. */
+async function adoptKeys(
+  ring: Keyring,
+  keys: Awaited<ReturnType<typeof api.pendingMessages>>["keys"],
+  groupId: string,
+  deviceId: string,
+  auth: Auth,
+): Promise<Keyring> {
+  const privateKey = deviceKeyPair.value?.privateKey;
+  if (keys.length === 0 || !privateKey) return ring;
+  const updated = await adoptPendingKeys(ring, keys, privateKey, groupId, deviceId, auth);
+  applyKeyring(updated);
+  return updated;
+}
+
+async function completeDueRotation(
+  ring: Keyring,
+  groupId: string,
+  deviceId: string,
+  auth: Auth,
+): Promise<Keyring> {
+  try {
+    const rotated = await rotateGroupKey(ring, groupId, deviceId, auth);
+    if (!rotated) return ring;
+    applyKeyring(rotated.keyring);
+    return rotated.keyring;
+  } catch (error) {
+    // A swapped device key is the one rotation failure the user has to know
+    // about: it means something is trying to be handed the new key. Said once,
+    // not on every poll — the condition persists until it is dealt with.
+    if (error instanceof DeviceKeyMismatchError && !keyMismatchReported) {
+      keyMismatchReported = true;
+      showToast(error.message, "error");
+    }
+    return ring;
   }
 }
 
@@ -171,11 +244,17 @@ async function runWithConcurrency<T>(
  */
 async function registerIncoming(
   pendingMessage: PendingMessage,
-  key: CryptoKey,
+  ring: Keyring,
 ): Promise<LocalMessage> {
   let local = getLocalMessage(pendingMessage.id);
 
   if (!local) {
+    // Not holding the epoch yet is transient, not corruption: the key is on
+    // its way through the same channel. Throwing here leaves the message
+    // pending for the next pass without spending any decrypt budget.
+    const key = keyForEpoch(ring, pendingMessage.keyEpoch);
+    if (!key) throw new Error(`No GroupKey for epoch ${pendingMessage.keyEpoch}`);
+
     // Decrypt failures here are permanent for a given ciphertext, so retrying
     // forever just burns CPU every poll. Below the retry budget we rethrow
     // (leave pending, retry next pass); past it the payload is dropped and the
@@ -226,10 +305,16 @@ async function registerIncoming(
       }
     }
 
+    // The sender's name was encrypted when that device joined, so it can be
+    // several epochs older than the message itself.
+    const nameKey =
+      pendingMessage.senderNameEpoch === null
+        ? undefined
+        : keyForEpoch(ring, pendingMessage.senderNameEpoch);
     const senderDeviceName =
-      pendingMessage.senderNameEnc && pendingMessage.senderNameIv
+      nameKey && pendingMessage.senderNameEnc && pendingMessage.senderNameIv
         ? await decryptName(
-            key,
+            nameKey,
             pendingMessage.senderNameEnc,
             pendingMessage.senderNameIv,
             pendingMessage.senderDeviceId,
@@ -239,6 +324,7 @@ async function registerIncoming(
     local = {
       id: pendingMessage.id,
       direction: "in",
+      keyEpoch: pendingMessage.keyEpoch,
       senderDeviceId: pendingMessage.senderDeviceId,
       senderDeviceName,
       text,
@@ -260,11 +346,15 @@ async function registerIncoming(
  * file messages we only confirm receipt (ack) AFTER a successful download +
  * decrypt, so the server never deletes a file we haven't received.
  */
-async function downloadAndAck(message: LocalMessage, key: CryptoKey, auth: Auth): Promise<void> {
+async function downloadAndAck(message: LocalMessage, ring: Keyring, auth: Auth): Promise<void> {
   let local = message;
   const file = local.file;
 
   if (file && needsDownload(local.fileState)) {
+    // Registered under an epoch we somehow no longer hold: transient, retry.
+    const key = local.keyEpoch === undefined ? undefined : keyForEpoch(ring, local.keyEpoch);
+    if (!key) throw new Error(`No GroupKey for epoch ${local.keyEpoch}`);
+
     await upsertMessage({ ...local, fileState: "downloading" });
 
     let ciphertext: ArrayBuffer;

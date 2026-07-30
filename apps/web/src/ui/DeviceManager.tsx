@@ -1,18 +1,26 @@
 import type { DeviceRole } from "@file-sharer/shared";
-import { ClipboardPaste, Crown, Plus, ScanLine, ShieldCheck, UserRound } from "lucide-preact";
+import {
+  ClipboardPaste,
+  Crown,
+  KeyRound,
+  Plus,
+  ScanLine,
+  ShieldCheck,
+  UserRound,
+} from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
-  addDeviceFromQr,
   type DeviceView,
+  addDeviceFromQr,
   listDevicesDecrypted,
   revokeDevice,
   updateDeviceRole,
 } from "../actions";
-import { startScanner, type Scanner } from "../qr/scan";
+import { type Scanner, startScanner } from "../qr/scan";
 import { session } from "../state/session";
 import { showToast } from "../state/ui";
-import { Button, cx, initials, Modal, Spinner } from "./components";
+import { Button, Modal, Spinner, cx, initials } from "./components";
 
 export function DeviceManager(): JSX.Element {
   const [devices, setDevices] = useState<DeviceView[]>([]);
@@ -22,6 +30,8 @@ export function DeviceManager(): JSX.Element {
   const [pendingRoleChange, setPendingRoleChange] = useState<DeviceView | null>(null);
   const [currentRole, setCurrentRole] = useState<DeviceRole>("member");
   const [changingRole, setChangingRole] = useState<string | null>(null);
+  const [rotationPending, setRotationPending] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   const myId = session.value?.deviceId;
 
   async function refresh(): Promise<void> {
@@ -30,6 +40,7 @@ export function DeviceManager(): JSX.Element {
       const result = await listDevicesDecrypted();
       setDevices(result.devices);
       setCurrentRole(result.currentRole);
+      setRotationPending(result.rotationPending);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not load devices", "error");
     } finally {
@@ -66,12 +77,15 @@ export function DeviceManager(): JSX.Element {
 
   async function confirmRevoke(device: DeviceView): Promise<void> {
     setPendingRevoke(null);
+    setRevoking(true);
     try {
-      await revokeDevice(device.id);
-      showToast(`Revoked ${device.name}`);
+      const { rotated } = await revokeDevice(device.id);
+      showToast(rotated ? `Revoked ${device.name} · new key sent` : `Revoked ${device.name}`);
       await refresh();
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not revoke device", "error");
+    } finally {
+      setRevoking(false);
     }
   }
 
@@ -87,6 +101,12 @@ export function DeviceManager(): JSX.Element {
             <p class="max-w-[420px] text-[12.5px] leading-5 text-muted">
               Control which of your devices can connect and manage this encrypted space.
             </p>
+            {!loading && (
+              <KeyStatus
+                rotating={rotationPending || revoking}
+                waiting={devices.filter((d) => !d.keyUpToDate).length}
+              />
+            )}
           </div>
           {canAdminister && (
             <Button class="flex-none" variant="primary" size="sm" onClick={() => setAdding(true)}>
@@ -129,6 +149,12 @@ export function DeviceManager(): JSX.Element {
                     {device.id === myId && <span class="text-accent">This device · </span>}
                     Linked {new Date(device.createdAt).toLocaleString()}
                   </div>
+                  {!device.keyUpToDate && (
+                    <div class="mt-1 flex items-center gap-1.5 text-[11.5px] text-amber-600 dark:text-amber-400">
+                      <span class="size-1.5 flex-none rounded-full bg-current" />
+                      Gets the new key when it reconnects
+                    </div>
+                  )}
                 </div>
                 {device.id !== myId && (
                   <div class="flex flex-none items-center gap-2">
@@ -177,11 +203,16 @@ export function DeviceManager(): JSX.Element {
       {pendingRevoke && (
         <Modal title="Revoke this device?" onClose={() => setPendingRevoke(null)}>
           <p class="text-[13.5px] leading-5 text-subtle">
-            <strong class="text-ink">{pendingRevoke.name}</strong> will lose access to this space.
-            It won't be able to send or receive messages until you link it again. Your other devices
-            stay connected, even if they are offline right now. Content already downloaded to this
-            device cannot be removed remotely.
+            <strong class="text-ink">{pendingRevoke.name}</strong> loses access, and this space gets
+            a new encryption key so it can't read anything sent from now on.
           </p>
+          <div class="flex gap-3 rounded-card border border-line bg-surface-2 px-4 py-3.5">
+            <KeyRound class="mt-0.5 size-4 flex-none text-muted" aria-hidden="true" />
+            <p class="text-[12.5px] leading-5 text-subtle">
+              Your other devices stay linked — no need to set them up again. What this device
+              already downloaded stays on it.
+            </p>
+          </div>
           <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
             <Button class="sm:w-auto" variant="secondary" onClick={() => setPendingRevoke(null)}>
               Cancel
@@ -239,6 +270,38 @@ export function DeviceManager(): JSX.Element {
         </Modal>
       )}
     </div>
+  );
+}
+
+/**
+ * One line on the space's encryption key. Rotation is a background mechanism,
+ * so this says only what the user could act on: it is settled, it is in
+ * progress, or some device has not picked it up yet.
+ */
+function KeyStatus({ rotating, waiting }: { rotating: boolean; waiting: number }): JSX.Element {
+  const pending = rotating || waiting > 0;
+  return (
+    <span
+      class={cx(
+        "mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium",
+        pending
+          ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+          : "bg-success/12 text-success",
+      )}
+    >
+      {rotating ? (
+        <Spinner class="!size-3 !border-[1.5px]" />
+      ) : pending ? (
+        <KeyRound class="size-3.5" aria-hidden="true" />
+      ) : (
+        <ShieldCheck class="size-3.5" aria-hidden="true" />
+      )}
+      {rotating
+        ? "Updating encryption key…"
+        : waiting > 0
+          ? `New key pending on ${waiting} ${waiting === 1 ? "device" : "devices"}`
+          : "Encryption key up to date"}
+    </span>
   );
 }
 

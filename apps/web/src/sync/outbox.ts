@@ -11,7 +11,7 @@
  * as "already sent".
  */
 
-import { type Auth, ApiError, NetworkError, api } from "../api/client";
+import { ApiError, type Auth, NetworkError, api } from "../api/client";
 import {
   bufToBase64Url,
   encryptFile,
@@ -19,15 +19,8 @@ import {
   encryptText,
   randomBytes,
 } from "../crypto/crypto";
-import {
-  META_GROUP_KEY,
-  META_SESSION,
-  allMessages,
-  getFile,
-  getMessage,
-  metaGet,
-  putMessage,
-} from "../db/store";
+import { type Keyring, currentKey, loadKeyring } from "../crypto/keyring";
+import { META_SESSION, allMessages, getFile, getMessage, metaGet, putMessage } from "../db/store";
 import type { LocalMessage, Session } from "../types";
 
 /** Background Sync tag registered by the page and handled by the SW. */
@@ -98,11 +91,8 @@ async function doFlush(
 ): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, failed: 0, remaining: 0 };
 
-  const [session, key] = await Promise.all([
-    metaGet<Session>(META_SESSION),
-    metaGet<CryptoKey>(META_GROUP_KEY),
-  ]);
-  if (!session || !key) return result;
+  const [session, keyring] = await Promise.all([metaGet<Session>(META_SESSION), loadKeyring()]);
+  if (!session || !keyring) return result;
   const auth: Auth = { token: session.deviceAuthToken };
 
   const queued = (await allMessages())
@@ -116,9 +106,9 @@ async function doFlush(
 
     try {
       if (message.file) {
-        await sendQueuedFile(message, key, auth, notify, options.signal);
+        await sendQueuedFile(message, keyring, auth, notify, options.signal);
       } else if (message.text !== undefined) {
-        await sendQueuedText(message, key, auth, notify, options.signal);
+        await sendQueuedText(message, keyring, auth, notify, options.signal);
       } else {
         continue;
       }
@@ -127,7 +117,17 @@ async function doFlush(
       // Re-read instead of reusing `message`: sendQueuedFile pins `file.iv`
       // mid-flight and that pin must survive into the retry (see above).
       const current = (await getMessage(message.id)) ?? message;
-      if (isRetriable(error) || options.signal?.aborted) {
+      if (isKeyRotated(error)) {
+        // The space key rotated between pinning and sending. Drop the pinned
+        // epoch (and the IV that goes with it) so the next pass re-encrypts
+        // under the new key: the server refused this message precisely so the
+        // revoked device never gets to read it.
+        await update(
+          { ...current, keyEpoch: undefined, file: repinFile(current), status: "queued" },
+          notify,
+        );
+        result.remaining++;
+      } else if (isRetriable(error) || options.signal?.aborted) {
         // NetworkError or transient ApiError (rate_limited / internal): back to
         // "queued" for the next attempt. The "uploading" → "queued" reset also
         // keeps the UI honest while offline / being rate-limited.
@@ -186,31 +186,68 @@ function isRetriable(error: unknown): boolean {
   return error instanceof ApiError && (error.code === "rate_limited" || error.code === "internal");
 }
 
+/** The server refused this ciphertext because the space key has rotated. */
+function isKeyRotated(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "key_rotated";
+}
+
+/** Clear a pinned file IV so the retry re-encrypts under the new epoch. */
+function repinFile(message: LocalMessage): LocalMessage["file"] {
+  return message.file ? { ...message.file, iv: "" } : undefined;
+}
+
+/**
+ * Pin the epoch this message is encrypted under, on the first attempt.
+ *
+ * Retries must reuse it for the same reason they reuse the file IV: the same
+ * key + IV + plaintext produce byte-identical ciphertext, so a retry racing a
+ * send the server already registered cannot leave R2 holding bytes that the
+ * stored IV/epoch can no longer open. A rotation is the one thing that
+ * invalidates the pin, and the server says so explicitly (`key_rotated`).
+ */
+async function pinEpoch(
+  message: LocalMessage,
+  keyring: Keyring,
+  notify?: NotifyUpdate,
+): Promise<{ epoch: number; key: CryptoKey }> {
+  const pinned = message.keyEpoch;
+  if (pinned !== undefined) {
+    const key = keyring.keys.get(pinned);
+    if (key) return { epoch: pinned, key };
+    // We no longer hold the pinned epoch (only possible after a local wipe);
+    // fall through and re-pin to the current one.
+  }
+  const epoch = keyring.current;
+  await update({ ...message, keyEpoch: epoch }, notify);
+  return { epoch, key: currentKey(keyring) };
+}
+
 async function sendQueuedText(
   message: LocalMessage,
-  key: CryptoKey,
+  keyring: Keyring,
   auth: Auth,
   notify?: NotifyUpdate,
   signal?: AbortSignal,
 ): Promise<void> {
   signal?.throwIfAborted();
+  const { epoch, key } = await pinEpoch(message, keyring, notify);
   const encrypted = await encryptText(key, message.text!, `text:${message.id}`);
   signal?.throwIfAborted();
   try {
     await api.sendMessage(
-      { id: message.id, encryptedPayload: encrypted.ciphertext, iv: encrypted.iv },
+      { id: message.id, keyEpoch: epoch, encryptedPayload: encrypted.ciphertext, iv: encrypted.iv },
       auth,
       signal,
     );
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
   }
-  await update({ ...message, status: "sent" }, notify);
+  await update({ ...message, keyEpoch: epoch, status: "sent" }, notify);
 }
 
 async function sendQueuedFile(
   message: LocalMessage,
-  key: CryptoKey,
+  keyring: Keyring,
   auth: Auth,
   notify?: NotifyUpdate,
   signal?: AbortSignal,
@@ -222,12 +259,14 @@ async function sendQueuedFile(
     throw new Error("Local upload source is missing");
   }
 
+  const { epoch, key } = await pinEpoch(message, keyring, notify);
+
   // Pin the file IV *before* uploading and reuse it on retries: with the same
-  // IV the re-encrypted ciphertext is byte-identical, so a retry that races a
-  // previously-registered send (see `isAlreadySent`) can never leave R2 holding
-  // ciphertext that doesn't match the IV the server already stored.
+  // key + IV the re-encrypted ciphertext is byte-identical, so a retry that
+  // races a previously-registered send (see `isAlreadySent`) can never leave R2
+  // holding ciphertext that doesn't match the IV the server already stored.
   if (!file.iv) file = { ...file, iv: bufToBase64Url(randomBytes(12)) };
-  await update({ ...message, file, status: "uploading" }, notify);
+  await update({ ...message, file, keyEpoch: epoch, status: "uploading" }, notify);
 
   signal?.throwIfAborted();
   const encrypted = await encryptFile(key, await blob.arrayBuffer(), `file:${message.id}`, file.iv);
@@ -243,6 +282,7 @@ async function sendQueuedFile(
     await api.sendMessage(
       {
         id: message.id,
+        keyEpoch: epoch,
         fileR2Key: file.r2Key,
         fileIv: encrypted.iv,
         fileMeta: meta.ciphertext,
@@ -254,5 +294,5 @@ async function sendQueuedFile(
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
   }
-  await update({ ...message, file, status: "sent" }, notify);
+  await update({ ...message, file, keyEpoch: epoch, status: "sent" }, notify);
 }

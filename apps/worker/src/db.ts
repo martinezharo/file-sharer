@@ -9,14 +9,32 @@ export function fileStorageKey(groupId: string, key: string): string {
   return `${groupId}/${key}`;
 }
 
-/** Active (non-revoked) device ids for a group. */
-export async function activeDeviceIds(env: Env, groupId: string): Promise<string[]> {
+/** An active member of a group, with the material needed to re-key it. */
+export interface ActiveDevice {
+  id: string;
+  publicKey: string;
+  keyEpoch: number;
+}
+
+/**
+ * Active (non-revoked) devices in a group. Single source of truth for "who is
+ * still in this space": message recipients, key-rotation targets and the
+ * management listing all derive from it.
+ */
+export async function activeDevices(env: Env, groupId: string): Promise<ActiveDevice[]> {
   const rows = await env.DB.prepare(
-    "SELECT id FROM devices WHERE group_id = ? AND revoked_at IS NULL",
+    `SELECT id, public_key AS publicKey, key_epoch AS keyEpoch
+       FROM devices
+      WHERE group_id = ? AND revoked_at IS NULL`,
   )
     .bind(groupId)
-    .all<{ id: string }>();
-  return rows.results.map((r) => r.id);
+    .all<ActiveDevice>();
+  return rows.results;
+}
+
+/** Active (non-revoked) device ids for a group. */
+export async function activeDeviceIds(env: Env, groupId: string): Promise<string[]> {
+  return (await activeDevices(env, groupId)).map((d) => d.id);
 }
 
 /** Delete a set of messages (and their R2 files + delivery rows) by id. */

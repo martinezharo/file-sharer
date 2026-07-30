@@ -7,6 +7,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   device_revoked: 403,
   not_found: 404,
   conflict: 409,
+  key_rotated: 409,
   payload_too_large: 413,
   rate_limited: 429,
   internal: 500,

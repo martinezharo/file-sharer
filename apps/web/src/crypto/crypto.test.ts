@@ -1,5 +1,5 @@
+import { INITIAL_KEY_EPOCH, type PairingPayload } from "@file-sharer/shared";
 import { describe, expect, it } from "vitest";
-import type { PairingPayload } from "@file-sharer/shared";
 import {
   base64UrlToBuf,
   bufToBase64Url,
@@ -117,6 +117,7 @@ describe("ECIES pairing wrap/unwrap", () => {
 
     const payload: PairingPayload = {
       groupKey: await exportGroupKey(groupKey),
+      keyEpoch: INITIAL_KEY_EPOCH,
       deviceAuthToken: randomToken(),
       groupId: randomId(),
     };
@@ -145,6 +146,7 @@ describe("ECIES pairing wrap/unwrap", () => {
     const groupKey = await generateGroupKey();
     const payload: PairingPayload = {
       groupKey: await exportGroupKey(groupKey),
+      keyEpoch: INITIAL_KEY_EPOCH,
       deviceAuthToken: randomToken(),
       groupId: randomId(),
     };

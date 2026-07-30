@@ -1,9 +1,10 @@
 /**
  * End-to-end verification against a running `wrangler dev` (http://localhost:8787).
  *
- * Simulates two devices doing the real flow with the REAL crypto core:
+ * Simulates several devices doing the real flow with the REAL crypto core:
  *  create group -> pair device B -> send text + file -> B fetches/decrypts/acks
- *  -> server deletes file & metadata -> revoke B.
+ *  -> server deletes file & metadata -> revoke B -> rotate the GroupKey and
+ *  check the revoked device can no longer read anything sent afterwards.
  *
  * Run with: node scripts/e2e-verify.mts
  */
@@ -24,9 +25,12 @@ import {
   importPublicKey,
   randomId,
   randomToken,
+  rekeyContext,
   sha256Hex,
   unwrapPairingPackage,
+  unwrapSecret,
   wrapPairingPackage,
+  wrapSecret,
 } from "../apps/web/src/crypto/crypto.ts";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:8787";
@@ -91,6 +95,7 @@ const wrapped = await wrapPairingPackage(
   recipientPub,
   {
     groupKey: await exportGroupKey(groupKey),
+    keyEpoch: 1,
     deviceAuthToken: bToken,
     groupId,
   },
@@ -106,6 +111,7 @@ const completeRes = await postJson(
     encryptedName: bName.ciphertext,
     nameIv: bName.iv,
     deviceAuthTokenHash: await sha256Hex(bToken),
+    keyEpoch: 1,
   },
   aAuth,
 );
@@ -136,7 +142,7 @@ const textId = randomId();
 const encText = await encryptText(groupKey, plaintext, `text:${textId}`);
 const sendTextRes = await postJson(
   "/api/messages",
-  { id: textId, encryptedPayload: encText.ciphertext, iv: encText.iv },
+  { id: textId, keyEpoch: 1, encryptedPayload: encText.ciphertext, iv: encText.iv },
   aAuth,
 );
 check("send text returns 200", sendTextRes.ok);
@@ -169,6 +175,7 @@ const sendFileRes = await postJson(
   "/api/messages",
   {
     id: fileId,
+    keyEpoch: 1,
     fileR2Key: r2Key,
     fileIv: encFile.iv,
     fileMeta: metaEnc.ciphertext,
@@ -259,7 +266,12 @@ await postJson(`/api/pairing/${cPairingId}/request`, {
 const cRecipient = await importPublicKey(c2Public);
 const cWrapped = await wrapPairingPackage(
   cRecipient,
-  { groupKey: await exportGroupKey(cGroupKey), deviceAuthToken: c2Token, groupId: cGroupId },
+  {
+    groupKey: await exportGroupKey(cGroupKey),
+    keyEpoch: 1,
+    deviceAuthToken: c2Token,
+    groupId: cGroupId,
+  },
   cPairingId,
 );
 const c2Name = await encryptName(cGroupKey, "Group C2 device", c2Id);
@@ -272,6 +284,7 @@ const cComplete = await postJson(
     encryptedName: c2Name.ciphertext,
     nameIv: c2Name.iv,
     deviceAuthTokenHash: await sha256Hex(c2Token),
+    keyEpoch: 1,
   },
   { token: cToken },
 );
@@ -281,7 +294,7 @@ const crossTextId = randomId();
 const crossEnc = await encryptText(cGroupKey, "private to C", `text:${crossTextId}`);
 const crossSend = await postJson(
   "/api/messages",
-  { id: crossTextId, encryptedPayload: crossEnc.ciphertext, iv: crossEnc.iv },
+  { id: crossTextId, keyEpoch: 1, encryptedPayload: crossEnc.ciphertext, iv: crossEnc.iv },
   { token: cToken },
 );
 check("group C message created", crossSend.ok);
@@ -301,23 +314,6 @@ check(
   "cross-group message is still intact after rejected ack",
   c2Pending.messages.some((m) => m.id === crossTextId),
 );
-
-// --- pollPairing rate limit (security: #4) --------------------------------
-// The poll endpoint is anonymous and should share the public-IP rate limit
-// with the other unauthenticated endpoints (RL_PUBLIC, 30/60s in dev).
-// Hammer it with a fresh pairing id (one that doesn't exist) until the
-// limiter trips. The limit is 30/60s in the wrangler config, so we need at
-// least 31 calls; the local limit may be lower, so we just check the
-// behavior — any 429 we see means the limiter is wired.
-let poll429 = false;
-for (let i = 0; i < 40; i++) {
-  const r = await fetch(`${BASE}/api/pairing/${randomId()}`);
-  if (r.status === 429) {
-    poll429 = true;
-    break;
-  }
-}
-check("pollPairing is rate-limited (eventually returns 429)", poll429);
 
 // --- Auth checks -----------------------------------------------------------
 const noAuth = await fetch(`${BASE}/api/devices`);
@@ -384,6 +380,183 @@ check("after revoke, only 1 active device", devicesAfter.devices.length === 1);
 
 const revokedAccess = await fetch(`${BASE}/api/messages/pending`, { headers: headers(bAuth) });
 check("revoked device is forbidden", revokedAccess.status === 403);
+
+// --- Key rotation: what makes the revoke above real ------------------------
+// B is revoked but still holds the epoch-1 GroupKey. Rotating is what actually
+// ends its access. Pair a device D first, so the rotation has a real remaining
+// device to wrap the new key for.
+const dKeys = await generateDeviceKeyPair();
+const dId = randomId();
+const dPairingId = randomId();
+const dPublic = await exportPublicKey(dKeys.publicKey);
+const dToken = randomToken();
+await postJson(`/api/pairing/${dPairingId}/request`, { device: { id: dId, publicKey: dPublic } });
+const dWrapped = await wrapPairingPackage(
+  await importPublicKey(dPublic),
+  { groupKey: await exportGroupKey(groupKey), keyEpoch: 1, deviceAuthToken: dToken, groupId },
+  dPairingId,
+);
+const dName = await encryptName(groupKey, "Device D", dId);
+const dComplete = await postJson(
+  `/api/pairing/${dPairingId}/complete`,
+  {
+    wrappedPackage: dWrapped.wrappedPackage,
+    ephemeralPublicKey: dWrapped.ephemeralPublicKey,
+    scannedPublicKey: dPublic,
+    encryptedName: dName.ciphertext,
+    nameIv: dName.iv,
+    deviceAuthTokenHash: await sha256Hex(dToken),
+    keyEpoch: 1,
+  },
+  aAuth,
+);
+check("device D paired at the current epoch", dComplete.ok);
+const dAuth: Auth = { token: dToken };
+
+interface SyncBody {
+  messages: any[];
+  keys: { epoch: number; wrappedKey: string; ephemeralPublicKey: string }[];
+  keyEpoch: number;
+  rotationPending: boolean;
+}
+const syncAs = async (auth: Auth): Promise<SyncBody> =>
+  (await (
+    await fetch(`${BASE}/api/messages/pending`, { headers: headers(auth) })
+  ).json()) as SyncBody;
+
+const beforeRotation = await syncAs(aAuth);
+check("revoking flags the space as owing a rotation", beforeRotation.rotationPending === true);
+check("the space is still on epoch 1", beforeRotation.keyEpoch === 1);
+
+// A rotates: a brand-new key, wrapped for every remaining device (only D).
+const newGroupKey = await generateGroupKey();
+const newEpoch = 2;
+const dWrap = await wrapSecret(
+  await importPublicKey(dPublic),
+  { groupKey: await exportGroupKey(newGroupKey), epoch: newEpoch },
+  rekeyContext(groupId, newEpoch, dId),
+);
+const rotateRes = await postJson(
+  "/api/keys/rotate",
+  {
+    epoch: newEpoch,
+    wraps: [
+      {
+        deviceId: dId,
+        wrappedKey: dWrap.wrappedPackage,
+        ephemeralPublicKey: dWrap.ephemeralPublicKey,
+      },
+    ],
+  },
+  aAuth,
+);
+const rotateBody = (await rotateRes.json()) as { epoch?: number; devices?: number };
+check("rotation is accepted", rotateRes.ok && rotateBody.epoch === 2);
+check("the new key was deposited for the one remaining device", rotateBody.devices === 1);
+
+// A second rotation from the same epoch loses the compare-and-swap.
+const staleRotate = await postJson("/api/keys/rotate", { epoch: 2, wraps: [] }, aAuth);
+check("a concurrent rotation from the old epoch is rejected", staleRotate.status === 409);
+
+// The whole point: content encrypted with the superseded key is refused.
+const staleId = randomId();
+const staleEnc = await encryptText(groupKey, "should never ship", `text:${staleId}`);
+const staleSend = await postJson(
+  "/api/messages",
+  { id: staleId, keyEpoch: 1, encryptedPayload: staleEnc.ciphertext, iv: staleEnc.iv },
+  aAuth,
+);
+check("sending under the superseded key is rejected", staleSend.status === 409);
+check(
+  "…with the code that tells the client to re-encrypt",
+  ((await staleSend.json()) as { error?: { code?: string } }).error?.code === "key_rotated",
+);
+
+const rotatedId = randomId();
+const rotatedText = "only readable after the rotation";
+const rotatedEnc = await encryptText(newGroupKey, rotatedText, `text:${rotatedId}`);
+const rotatedSend = await postJson(
+  "/api/messages",
+  { id: rotatedId, keyEpoch: 2, encryptedPayload: rotatedEnc.ciphertext, iv: rotatedEnc.iv },
+  aAuth,
+);
+check("sending under the new key is accepted", rotatedSend.ok);
+
+// D was never asked to re-pair: it picks the new key up on its next poll.
+const dSync = await syncAs(dAuth);
+check("the new key is waiting for D", dSync.keys.length === 1 && dSync.keys[0]!.epoch === 2);
+check("the rotation cleared the space's debt", dSync.rotationPending === false);
+const dRecovered = await unwrapSecret<{ groupKey: string; epoch: number }>(
+  dKeys.privateKey,
+  dSync.keys[0]!.ephemeralPublicKey,
+  dSync.keys[0]!.wrappedKey,
+  rekeyContext(groupId, 2, dId),
+);
+const dNewKey = await importGroupKey(dRecovered.groupKey);
+const dRotatedMsg = dSync.messages.find((m) => m.id === rotatedId);
+check("the post-rotation message is tagged with its epoch", dRotatedMsg?.keyEpoch === 2);
+check(
+  "D decrypts it with the key it just adopted",
+  (await decryptText(
+    dNewKey,
+    dRotatedMsg.encryptedPayload,
+    dRotatedMsg.iv,
+    `text:${rotatedId}`,
+  )) === rotatedText,
+);
+
+// The revoked device's key is now useless for anything sent from here on.
+let revokedCanRead = true;
+try {
+  await decryptText(bGroupKey, dRotatedMsg.encryptedPayload, dRotatedMsg.iv, `text:${rotatedId}`);
+} catch {
+  revokedCanRead = false;
+}
+check("the revoked device's old key cannot decrypt post-rotation content", !revokedCanRead);
+
+// A blob meant for another device (or epoch) is bound by its AAD.
+let replayed = true;
+try {
+  await unwrapSecret(
+    dKeys.privateKey,
+    dSync.keys[0]!.ephemeralPublicKey,
+    dSync.keys[0]!.wrappedKey,
+    rekeyContext(groupId, 3, dId),
+  );
+} catch {
+  replayed = false;
+}
+check("a wrapped key cannot be replayed at another epoch", !replayed);
+
+const ackKeyRes = await postJson("/api/keys/2/ack", {}, dAuth);
+check("D can ack the epoch it adopted", ackKeyRes.ok);
+const afterAdopt = await syncAs(dAuth);
+check("the server drops the wrapped key once acked", afterAdopt.keys.length === 0);
+const devicesAfterRotation = (await (
+  await fetch(`${BASE}/api/devices`, { headers: headers(aAuth) })
+).json()) as { devices: { id: string; keyEpoch: number }[]; keyEpoch: number };
+check("the space reports the new epoch", devicesAfterRotation.keyEpoch === 2);
+check(
+  "every remaining device is caught up",
+  devicesAfterRotation.devices.every((d) => d.keyEpoch === 2),
+);
+
+// --- pollPairing rate limit (security: #4) --------------------------------
+// The poll endpoint is anonymous and should share the public-IP rate limit
+// with the other unauthenticated endpoints (RL_PUBLIC, 30/60s in dev).
+// Hammer it with a fresh pairing id (one that doesn't exist) until the
+// limiter trips. The limit is 30/60s in the wrangler config, so we need at
+// least 31 calls; the local limit may be lower, so we just check the
+// behavior — any 429 we see means the limiter is wired.
+let poll429 = false;
+for (let i = 0; i < 40; i++) {
+  const r = await fetch(`${BASE}/api/pairing/${randomId()}`);
+  if (r.status === 429) {
+    poll429 = true;
+    break;
+  }
+}
+check("pollPairing is rate-limited (eventually returns 429)", poll429);
 
 // avoid unused-var lint for ackText
 void ackText;

@@ -8,7 +8,7 @@ import type {
 } from "@file-sharer/shared";
 import { authenticate, requireAdmin } from "../auth";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireSha256Hex, requireString } from "../http";
+import { readJson, requireId, requireInt, requireSha256Hex, requireString } from "../http";
 import type { RouteContext } from "../router";
 import { clientIp, rateLimit } from "../security";
 
@@ -62,6 +62,16 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const nameEnc = requireString(body.encryptedName, "encryptedName", 1024);
   const nameIv = requireString(body.nameIv, "nameIv", 128);
   const deviceAuthTokenHash = requireSha256Hex(body.deviceAuthTokenHash, "deviceAuthTokenHash");
+  const keyEpoch = requireInt(body.keyEpoch, "keyEpoch", 1, Number.MAX_SAFE_INTEGER);
+
+  // Handing over a superseded key would create a device that cannot read
+  // anything current and would be skipped by the next rotation's device list.
+  if (keyEpoch !== auth.groupKeyEpoch) {
+    throw new ApiError(
+      "key_rotated",
+      "The space key has rotated; sync this device before adding another",
+    );
+  }
 
   const slot = await c.env.DB.prepare(
     "SELECT new_device AS newDevice, wrapped_package AS wrapped FROM pairing WHERE pairing_id = ?",
@@ -107,17 +117,31 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   // that slips past the check above rather than reactivating it.
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, role, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'member', ?)
+      `INSERT INTO devices
+         (id, group_id, name_enc, name_iv, public_key, auth_token_hash, role,
+          key_epoch, name_key_epoch, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'member', ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          revoked_at = NULL,
          name_enc = excluded.name_enc,
          name_iv = excluded.name_iv,
          public_key = excluded.public_key,
          auth_token_hash = excluded.auth_token_hash,
-         role = 'member'
+         role = 'member',
+         key_epoch = excluded.key_epoch,
+         name_key_epoch = excluded.name_key_epoch
        WHERE devices.group_id = excluded.group_id`,
-    ).bind(device.id, auth.groupId, nameEnc, nameIv, device.publicKey, deviceAuthTokenHash, now),
+    ).bind(
+      device.id,
+      auth.groupId,
+      nameEnc,
+      nameIv,
+      device.publicKey,
+      deviceAuthTokenHash,
+      keyEpoch,
+      keyEpoch,
+      now,
+    ),
     c.env.DB.prepare(
       `UPDATE pairing
           SET group_id = ?, wrapped_package = ?, ephemeral_public_key = ?

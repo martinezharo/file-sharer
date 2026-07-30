@@ -6,6 +6,12 @@ export interface AuthContext {
   groupId: string;
   deviceId: string;
   role: DeviceRole;
+  /** Highest GroupKey epoch this device has adopted. */
+  keyEpoch: number;
+  /** The group's current GroupKey epoch. Equal to `keyEpoch` once caught up. */
+  groupKeyEpoch: number;
+  /** A revocation is still waiting for its key rotation. */
+  rotationPending: boolean;
 }
 
 /** SHA-256 of a UTF-8 string as lowercase hex. */
@@ -31,12 +37,23 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
   const tokenHash = await sha256Hex(match[1]!.trim());
 
   const row = await env.DB.prepare(
-    `SELECT group_id AS groupId, id AS deviceId, role, revoked_at AS revokedAt
-       FROM devices
-      WHERE auth_token_hash = ?`,
+    `SELECT d.group_id AS groupId, d.id AS deviceId, d.role AS role,
+            d.revoked_at AS revokedAt, d.key_epoch AS keyEpoch,
+            g.key_epoch AS groupKeyEpoch, g.rotation_pending AS rotationPending
+       FROM devices d
+       JOIN groups g ON g.id = d.group_id
+      WHERE d.auth_token_hash = ?`,
   )
     .bind(tokenHash)
-    .first<{ groupId: string; deviceId: string; role: DeviceRole; revokedAt: number | null }>();
+    .first<{
+      groupId: string;
+      deviceId: string;
+      role: DeviceRole;
+      revokedAt: number | null;
+      keyEpoch: number;
+      groupKeyEpoch: number;
+      rotationPending: number;
+    }>();
   if (!row) {
     throw new ApiError("unauthorized", "Invalid token");
   }
@@ -47,7 +64,14 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
     );
   }
 
-  return { groupId: row.groupId, deviceId: row.deviceId, role: row.role };
+  return {
+    groupId: row.groupId,
+    deviceId: row.deviceId,
+    role: row.role,
+    keyEpoch: row.keyEpoch,
+    groupKeyEpoch: row.groupKeyEpoch,
+    rotationPending: row.rotationPending === 1,
+  };
 }
 
 export function requireAdmin(auth: AuthContext): void {

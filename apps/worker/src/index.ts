@@ -5,6 +5,7 @@ import { Router } from "./router";
 import { listDevices, revokeDevice, updateDeviceRole } from "./routes/devices";
 import { downloadFile, uploadFile } from "./routes/files";
 import { createGroup } from "./routes/groups";
+import { ackKey, rotateKey } from "./routes/keys";
 import { ackMessage, pendingMessages, sendMessage } from "./routes/messages";
 import { completePairing, deletePairing, pollPairing, requestPairing } from "./routes/pairing";
 import { withSecurityHeaders } from "./security";
@@ -24,6 +25,9 @@ router.post("/api/messages", sendMessage);
 
 router.put("/api/files/:r2key", uploadFile);
 router.get("/api/files/:r2key", downloadFile);
+
+router.post("/api/keys/rotate", rotateKey);
+router.post("/api/keys/:epoch/ack", ackKey);
 
 router.get("/api/devices", listDevices);
 router.delete("/api/devices/:id", revokeDevice);
