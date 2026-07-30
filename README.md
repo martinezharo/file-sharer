@@ -86,8 +86,15 @@ branch that adds one can't leave you with a schema the API doesn't match. See
 ## Deploy
 
 ```bash
-pnpm deploy         # migrates D1, builds the PWA, deploys the Worker (serves PWA + API)
+pnpm run deploy     # migrates D1, builds the PWA, deploys the Worker (serves PWA + API)
 ```
+
+`run` is not optional here, and neither is the directory. `pnpm deploy` is one of pnpm's own
+commands (it copies a workspace package into a deploy folder), so it shadows this script and
+fails with `ERR_PNPM_NOTHING_TO_DEPLOY` instead of deploying anything. And it has to be run
+**from the repository root**: from `apps/worker` the same name resolves to that package's
+`deploy`, which is a bare `wrangler deploy` — it would publish the Worker while skipping the
+migration and the PWA build, leaving new code serving against the old schema.
 
 Migrations run **before** the Worker goes out, so the new schema is already there when the
 new code starts serving. That is the safe order as long as a migration only adds things:

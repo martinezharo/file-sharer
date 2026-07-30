@@ -36,6 +36,10 @@ In the monorepo, run `pnpm dev` from the root to start the Worker and the Vite d
 
 ## Deploy
 
+Use `pnpm run deploy` from the repository root. It is the only path that applies pending D1
+migrations before publishing; the two commands below build and publish but leave the schema
+untouched, so reach for them only when you know there is no migration to apply.
+
 ```bash
 pnpm --filter @file-sharer/web build   # produces apps/web/dist (served by [assets])
 wrangler deploy
