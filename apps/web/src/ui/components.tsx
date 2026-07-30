@@ -173,7 +173,11 @@ export function Toasts(): JSX.Element {
    ------------------------------------------------------------------------ */
 interface ModalProps {
   title: string;
-  onClose: () => void;
+  /**
+   * Omit for a modal the user cannot walk away from: no close button, no
+   * Escape, no backdrop click — it must be resolved through its own actions.
+   */
+  onClose?: () => void;
   children: ComponentChildren;
 }
 
@@ -184,7 +188,7 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
   // Close on Escape and move focus into the dialog when it opens (basic a11y).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onClose?.();
     };
     document.addEventListener("keydown", onKey);
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -198,7 +202,7 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
   return (
     <div
       class="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,#0a0a0c_55%,transparent)] p-4 backdrop-blur-[4px]"
-      onClick={onClose}
+      onClick={() => onClose?.()}
     >
       <div
         ref={panelRef}
@@ -213,9 +217,11 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
           <h2 id={titleId} class="text-[17px] font-semibold">
             {title}
           </h2>
-          <IconButton label="Close" onClick={onClose}>
-            <X />
-          </IconButton>
+          {onClose && (
+            <IconButton label="Close" onClick={onClose}>
+              <X />
+            </IconButton>
+          )}
         </header>
         <div class="flex flex-col gap-4 px-[22px] pb-[22px] pt-1">{children}</div>
       </div>

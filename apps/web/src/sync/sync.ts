@@ -3,7 +3,7 @@ import { ApiError, type Auth, api } from "../api/client";
 import { getFile, putFile } from "../db/store";
 import { decryptFile, decryptJson, decryptName, decryptText } from "../crypto/crypto";
 import { applyMessageUpdate, getLocalMessage, upsertMessage } from "../state/messages";
-import { authHeaders, groupKey, session } from "../state/session";
+import { authHeaders, groupKey, session, sessionRevoked } from "../state/session";
 import type { FileRef, LocalMessage } from "../types";
 import { requestBackgroundSync, requestImmediateWorkerFlush } from "./background";
 import { flushQueuedOutbox, type OutboxUpdateBroadcast } from "./outbox";
@@ -89,6 +89,9 @@ export async function syncNow(): Promise<void> {
   const currentSession = session.value;
   const key = groupKey.value;
   if (!currentSession || !key) return;
+  // The polling timer is already stopped when this flips, but syncNow is also
+  // called directly (outbox flush, retries) and must not revive a dead session.
+  if (sessionRevoked.value) return;
 
   running = true;
   try {

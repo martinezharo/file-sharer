@@ -17,6 +17,13 @@ export const deviceKeyPair = signal<CryptoKeyPair | null>(null);
 /** True once the app has finished its initial load from IndexedDB. */
 export const ready = signal(false);
 
+/**
+ * The server no longer accepts this device's token (revoked, or wiped along
+ * with the space). The session is kept in memory so the UI can explain what
+ * happened instead of silently dropping the user on the landing page.
+ */
+export const sessionRevoked = signal(false);
+
 const SESSION_KEY = META_SESSION;
 const GROUP_KEY = META_GROUP_KEY;
 const DEVICE_KEYPAIR_KEY = META_DEVICE_KEYPAIR;
@@ -55,6 +62,7 @@ export async function persistSession(
   session.value = newSession;
   groupKey.value = newGroupKey;
   deviceKeyPair.value = newKeyPair;
+  sessionRevoked.value = false;
 }
 
 /** Leave the space and wipe all local data on this device. */
@@ -63,4 +71,5 @@ export async function resetSession(): Promise<void> {
   session.value = null;
   groupKey.value = null;
   deviceKeyPair.value = null;
+  sessionRevoked.value = false;
 }

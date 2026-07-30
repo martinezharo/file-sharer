@@ -41,7 +41,10 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
     throw new ApiError("unauthorized", "Invalid token");
   }
   if (row.revokedAt !== null) {
-    throw new ApiError("forbidden", "This device has been revoked. Link it again to reconnect.");
+    throw new ApiError(
+      "device_revoked",
+      "This device has been revoked. Link it again to reconnect.",
+    );
   }
 
   return { groupId: row.groupId, deviceId: row.deviceId, role: row.role };

@@ -2,7 +2,7 @@ import { AlertTriangle, LogOut, MessagesSquare, MonitorSmartphone } from "lucide
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 import { logout } from "../actions";
-import { ready, session } from "../state/session";
+import { ready, session, sessionRevoked } from "../state/session";
 import { online, view, type View } from "../state/ui";
 import { Chat } from "./Chat";
 import { Button, cx, IconButton, Logo, Modal, Spinner, Toasts } from "./components";
@@ -152,8 +152,38 @@ function CurrentView(): JSX.Element {
         </Modal>
       )}
 
+      {sessionRevoked.value && <RevokedNotice />}
+
       <Toasts />
     </div>
+  );
+}
+
+/**
+ * Terminal state: the server no longer accepts this device. Nothing in the app
+ * works from here, so the notice is not dismissable — the only way out is to
+ * link the device again, which starts a fresh session.
+ */
+function RevokedNotice(): JSX.Element {
+  return (
+    <Modal title="This device is no longer linked">
+      <div class="flex gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
+        <AlertTriangle class="mt-0.5 size-[19px] flex-none" />
+        <p class="text-[13.5px] font-medium leading-5">
+          Its access was revoked from another device, or the space no longer exists. Messages and
+          files can't be sent or received until you link it again.
+        </p>
+      </div>
+      <p class="text-[13.5px] leading-5 text-subtle">
+        Linking again starts a new session on this device: the messages, files and encryption keys
+        stored here are removed first.
+      </p>
+      <div class="flex justify-end">
+        <Button class="sm:w-auto" variant="danger" onClick={() => void logout()}>
+          Link again
+        </Button>
+      </div>
+    </Modal>
   );
 }
 

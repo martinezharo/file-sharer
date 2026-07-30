@@ -1,15 +1,17 @@
-import type {
-  AckResponse,
-  ApiErrorBody,
-  CreateGroupRequest,
-  CreateGroupResponse,
-  DevicesListResponse,
-  AssignableDeviceRole,
-  PairingCompleteBody,
-  PairingPollResponse,
-  PairingRequestBody,
-  PendingMessagesResponse,
-  SendMessageRequest,
+import {
+  AUTH_FAILURE_CODES,
+  type AckResponse,
+  type ApiErrorBody,
+  type ApiErrorCode,
+  type CreateGroupRequest,
+  type CreateGroupResponse,
+  type DevicesListResponse,
+  type AssignableDeviceRole,
+  type PairingCompleteBody,
+  type PairingPollResponse,
+  type PairingRequestBody,
+  type PendingMessagesResponse,
+  type SendMessageRequest,
 } from "@file-sharer/shared";
 
 const BASE = "/api";
@@ -35,6 +37,31 @@ export class NetworkError extends Error {
     super(message);
     this.name = "NetworkError";
   }
+}
+
+/**
+ * True when the server rejected our credentials for good: a token that no
+ * device owns any more, or a device that was revoked. Retrying can only fail
+ * the same way — the device has to be linked again.
+ */
+export function isAuthFailure(error: unknown): boolean {
+  return error instanceof ApiError && AUTH_FAILURE_CODES.includes(error.code as ApiErrorCode);
+}
+
+type AuthFailureHandler = (error: ApiError) => void;
+
+let authFailureHandler: AuthFailureHandler | null = null;
+
+/**
+ * Register what to do when an authenticated request is rejected for good.
+ *
+ * The API layer is the only place that sees every authenticated call, so the
+ * dead-session check lives here instead of being repeated at each call site.
+ * It stays a callback because this module also runs inside the service worker,
+ * which has no UI to send the user back to.
+ */
+export function setAuthFailureHandler(handler: AuthFailureHandler | null): void {
+  authFailureHandler = handler;
 }
 
 interface RequestOptions {
@@ -78,7 +105,11 @@ async function rawRequest(method: string, path: string, opts: RequestOptions): P
         continue;
       }
       if (!response.ok) {
-        throw await toApiError(response);
+        const error = await toApiError(response);
+        // Only requests that presented credentials say anything about them:
+        // an unauthenticated endpoint answering 401 is not a dead session.
+        if (opts.auth && isAuthFailure(error)) authFailureHandler?.(error);
+        throw error;
       }
       return response;
     } catch (err) {

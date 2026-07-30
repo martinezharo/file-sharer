@@ -4,6 +4,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   bad_request: 400,
   unauthorized: 401,
   forbidden: 403,
+  device_revoked: 403,
   not_found: 404,
   conflict: 409,
   payload_too_large: 413,

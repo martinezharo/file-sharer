@@ -1,6 +1,7 @@
 import { render } from "preact";
 import { registerSW } from "virtual:pwa-register";
-import { resumeLinking } from "./actions";
+import { handleAuthFailure, resumeLinking } from "./actions";
+import { setAuthFailureHandler } from "./api/client";
 import { consumeSharedContent } from "./share/incoming";
 import { loadMessages } from "./state/messages";
 import { loadSession, session } from "./state/session";
@@ -33,6 +34,10 @@ function registerServiceWorker(): void {
 }
 
 async function bootstrap(): Promise<void> {
+  // Any authenticated request can be the one that discovers the device is no
+  // longer linked; wire that up before the first one goes out.
+  setAuthFailureHandler(handleAuthFailure);
+
   await loadSession();
   if (session.value) {
     await loadMessages();

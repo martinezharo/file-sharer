@@ -216,12 +216,22 @@ export interface UpdateDeviceRoleResponse {
 export type ApiErrorCode =
   | "bad_request"
   | "unauthorized"
+  /** Authenticated, but this device may not do that (insufficient role). */
   | "forbidden"
+  /** This device's link is gone for good: it must be paired again. */
+  | "device_revoked"
   | "not_found"
   | "conflict"
   | "payload_too_large"
   | "rate_limited"
   | "internal";
+
+/**
+ * Errors that mean the caller's credentials will never work again, whatever it
+ * retries. Clients use this to stop polling and ask the user to link again,
+ * instead of looping forever on a dead session.
+ */
+export const AUTH_FAILURE_CODES: readonly ApiErrorCode[] = ["unauthorized", "device_revoked"];
 
 export interface ApiErrorBody {
   error: {

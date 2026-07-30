@@ -30,7 +30,14 @@ import {
   putOutgoingFileMessages,
 } from "./db/store";
 import { applyMessageUpdate, loadMessages, removeMessage, upsertMessage } from "./state/messages";
-import { authHeaders, groupKey, persistSession, resetSession, session } from "./state/session";
+import {
+  authHeaders,
+  groupKey,
+  persistSession,
+  resetSession,
+  session,
+  sessionRevoked,
+} from "./state/session";
 import { showToast, view } from "./state/ui";
 import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
 import { startSync, stopSync, syncNow } from "./sync/sync";
@@ -475,6 +482,18 @@ export async function logout(): Promise<void> {
   stopSync();
   await resetSession();
   view.value = "chat";
+}
+
+/**
+ * The server rejected this device's credentials for good. Every request from
+ * now on would fail the same way, so stop the loops that would otherwise retry
+ * forever and flag the session so the UI can tell the user to link again.
+ */
+export function handleAuthFailure(): void {
+  if (sessionRevoked.value || !session.value) return;
+  sessionRevoked.value = true;
+  stopSync();
+  stopLinkPolling();
 }
 
 function errorMessage(error: unknown): string {
