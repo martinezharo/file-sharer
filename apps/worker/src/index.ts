@@ -2,7 +2,7 @@ import { runCleanup } from "./cron";
 import type { Env } from "./env";
 import { ApiError } from "./errors";
 import { Router } from "./router";
-import { listDevices, revokeDevice, updateDeviceRole } from "./routes/devices";
+import { listDevices, publishSigningKey, revokeDevice, updateDeviceRole } from "./routes/devices";
 import { downloadFile, uploadFile } from "./routes/files";
 import { createGroup } from "./routes/groups";
 import { ackKey, rotateKey } from "./routes/keys";
@@ -30,6 +30,7 @@ router.post("/api/keys/rotate", rotateKey);
 router.post("/api/keys/:epoch/ack", ackKey);
 
 router.get("/api/devices", listDevices);
+router.post("/api/devices/self/signing-key", publishSigningKey);
 router.delete("/api/devices/:id", revokeDevice);
 router.patch("/api/devices/:id/role", updateDeviceRole);
 

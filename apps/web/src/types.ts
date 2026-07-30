@@ -1,5 +1,7 @@
 /** Local-only types for the PWA (kept separate from the wire DTOs in shared). */
 
+import type { SignatureVerdict } from "./crypto/identity";
+
 export interface Session {
   groupId: string;
   deviceId: string;
@@ -49,6 +51,15 @@ export interface LocalMessage {
   fileState?: FileState;
   /** Incoming payload (text/file metadata) could not be decrypted; dropped. */
   corrupted?: boolean;
+  /**
+   * Whether the sender's signature checked out (incoming only).
+   *
+   * `undefined` on messages received before signing existed, and `unverified`
+   * when the sender has not published a signing key — neither is worth telling
+   * the user about. `invalid` means the sender is not who the server says, and
+   * that one is surfaced.
+   */
+  senderVerified?: SignatureVerdict;
   /** True once this device has acked receipt to the server (incoming only). */
   acked?: boolean;
 }

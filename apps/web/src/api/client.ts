@@ -12,6 +12,8 @@ import {
   type PairingPollResponse,
   type PairingRequestBody,
   type PendingMessagesResponse,
+  type PublishSigningKeyRequest,
+  type PublishSigningKeyResponse,
   type RotateKeyRequest,
   type RotateKeyResponse,
   type SendMessageRequest,
@@ -227,6 +229,13 @@ export const api = {
 
   listDevices(auth: Auth): Promise<DevicesListResponse> {
     return jsonRequest("GET", "/devices", { auth, retries: 1 });
+  },
+
+  publishSigningKey(
+    body: PublishSigningKeyRequest,
+    auth: Auth,
+  ): Promise<PublishSigningKeyResponse> {
+    return jsonRequest("POST", "/devices/self/signing-key", { jsonBody: body, auth });
   },
 
   revokeDevice(id: string, auth: Auth): Promise<void> {

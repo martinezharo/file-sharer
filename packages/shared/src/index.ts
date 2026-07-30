@@ -44,6 +44,13 @@ export interface DeviceDescriptor {
   id: string;
   /** ECDH P-256 public key, base64url-encoded SPKI. */
   publicKey: string;
+  /**
+   * ECDSA P-256 public key (base64url SPKI) this device signs its messages with.
+   * Optional because devices that predate sender authenticity have none until
+   * they publish one (see PublishSigningKeyRequest) — their messages are simply
+   * unverifiable rather than rejected, so nothing breaks mid-upgrade.
+   */
+  signingPublicKey?: string;
 }
 
 /**
@@ -59,6 +66,31 @@ export const DEVICE_ROLES = ["owner", "admin", "member"] as const;
 export type DeviceRole = (typeof DEVICE_ROLES)[number];
 export type AssignableDeviceRole = Exclude<DeviceRole, "owner">;
 
+/**
+ * An introducer's signed statement that a device's public material is genuine.
+ *
+ * The device that adds another one scans its QR code, so it learns that
+ * device's keys through a channel the server cannot touch. Signing what it
+ * learned turns that one-off out-of-band moment into something every *other*
+ * device can check later, which is what removes the trust-on-first-use gap:
+ * a server that invents a device (or swaps the keys of one nobody has seen)
+ * cannot produce a signature from a device that is already trusted.
+ */
+export interface DeviceAttestation {
+  groupId: string;
+  /** The device being vouched for. */
+  deviceId: string;
+  /** Its ECDH public key, exactly as it must appear in the roster. */
+  publicKey: string;
+  /** Its ECDSA signing public key, exactly as it must appear in the roster. */
+  signingPublicKey: string;
+  /** The device that scanned the QR code and signed this. */
+  signerDeviceId: string;
+  issuedAt: number;
+  /** ECDSA P-256 signature (base64url) of `attestationStatement(this)`. */
+  signature: string;
+}
+
 /** A device as listed in the management UI (name stays encrypted in transit). */
 export interface DeviceInfo {
   id: string;
@@ -68,6 +100,10 @@ export interface DeviceInfo {
   role: DeviceRole;
   /** ECDH P-256 public key (base64url SPKI), used to wrap a rotated GroupKey for it. */
   publicKey: string;
+  /** ECDSA P-256 public key (base64url SPKI), or null for a device that has not published one. */
+  signingPublicKey: string | null;
+  /** Who vouched for this device's keys, or null (legacy device / joined before attestations). */
+  attestation: DeviceAttestation | null;
   /** Highest GroupKey epoch this device has adopted. Below the group's = still catching up. */
   keyEpoch: number;
   /** Epoch of the key that encrypted `encryptedName` (names are never rewritten). */
@@ -82,6 +118,79 @@ export interface PairingQrPayload {
   deviceName: string;
   /** ECDH P-256 public key of the joining device, base64url SPKI. */
   publicKey: string;
+  /**
+   * ECDSA P-256 signing public key of the joining device, base64url SPKI. It
+   * travels in the QR code precisely so the adding device learns it
+   * out-of-band and can attest to it (see DeviceAttestation).
+   */
+  signingPublicKey?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Signed statements
+// ---------------------------------------------------------------------------
+
+/**
+ * The exact bytes a signature covers, built the same way by signer and
+ * verifier. Positional and delimiter-based rather than JSON: every field is an
+ * id, a base64url key or a number, none of which can contain the separator, so
+ * there is no way to shift meaning from one field into another.
+ */
+export function attestationStatement(fields: Omit<DeviceAttestation, "signature">): string {
+  return [
+    "fs-device-attestation:1",
+    fields.groupId,
+    fields.deviceId,
+    fields.publicKey,
+    fields.signingPublicKey,
+    fields.signerDeviceId,
+    String(fields.issuedAt),
+  ].join(":");
+}
+
+/** The parts of a message a sender signs: who sent it, under which key, and every ciphertext in it. */
+export interface MessageSignatureFields {
+  groupId: string;
+  messageId: string;
+  senderDeviceId: string;
+  keyEpoch: number;
+  encryptedPayload?: string | null;
+  iv?: string | null;
+  fileR2Key?: string | null;
+  fileIv?: string | null;
+  fileMeta?: string | null;
+  fileMetaIv?: string | null;
+}
+
+/**
+ * Statement signed by the sending device over a message.
+ *
+ * It covers the sender id and the ciphertexts, so the server can neither
+ * re-attribute a message to another device nor swap in a different payload.
+ * `createdAt` is deliberately absent: it is assigned by the server, so the
+ * sender could not sign it. Ordering/replay is a separate problem (see the
+ * threat model in the README).
+ *
+ * The ciphertexts are length-prefixed because, unlike ids and keys, base64url
+ * payloads sit next to each other and an absent field must not be confusable
+ * with an empty one.
+ */
+export function messageSignatureStatement(fields: MessageSignatureFields): string {
+  const part = (value: string | null | undefined): string =>
+    value === undefined || value === null ? "-" : `${value.length}.${value}`;
+  return [
+    "fs-message:1",
+    fields.groupId,
+    fields.messageId,
+    fields.senderDeviceId,
+    String(fields.keyEpoch),
+    part(fields.encryptedPayload),
+    part(fields.iv),
+    part(fields.fileR2Key),
+    part(fields.fileIv),
+    part(fields.fileMeta),
+    part(fields.fileMetaIv),
+  ].join(":");
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +205,13 @@ export interface CreateGroupRequest {
   /** GroupKey-encrypted device name (the first device already holds the key). */
   encryptedName: string;
   nameIv: string;
+  /**
+   * The founding device's self-attestation. It is the root every later
+   * attestation chains back to: a device that joins inherits it through its
+   * pairing package, so "who is genuinely in this space" is anchored on the
+   * device that created it rather than on whatever the server lists.
+   */
+  attestation?: DeviceAttestation;
 }
 
 export interface CreateGroupResponse {
@@ -125,6 +241,14 @@ export interface PairingCompleteBody {
    * for the wrong recipient.
    */
   scannedPublicKey: string;
+  /** Same check for the signing key: what was scanned must be what was published. */
+  scannedSigningPublicKey?: string;
+  /**
+   * The adding device's signed statement about the keys it just scanned. Every
+   * other device verifies this instead of trusting the roster the server
+   * serves. Absent only when the adding device has no signing key yet.
+   */
+  attestation?: DeviceAttestation;
   /**
    * GroupKey-encrypted name of the *joining* device. The existing device holds
    * the GroupKey and the scanned (out-of-band) name, so it encrypts it here;
@@ -165,6 +289,33 @@ export interface PairingPayload {
   /** Bearer credential unique to the joining device. */
   deviceAuthToken: string;
   groupId: string;
+  /**
+   * The space's device roster as the *introducer* knows it, handed over
+   * through the same out-of-band-anchored channel as the GroupKey.
+   *
+   * Without it a joining device would have to take the server's word for who
+   * else is in the space, and would have no trusted key to check any
+   * attestation against. With it, the device starts from the introducer's
+   * verified view and every later change has to be attested by someone in it.
+   */
+  roster?: DeviceKeyBundle[];
+}
+
+/** One device's public identity: what a signature is checked against. */
+export interface DeviceKeyBundle {
+  deviceId: string;
+  publicKey: string;
+  signingPublicKey?: string;
+}
+
+/** A device publishes the signing key it will authenticate its messages with. */
+export interface PublishSigningKeyRequest {
+  /** ECDSA P-256 public key, base64url SPKI. Set once: it can never be replaced. */
+  signingPublicKey: string;
+}
+
+export interface PublishSigningKeyResponse {
+  ok: true;
 }
 
 export interface SendMessageRequest {
@@ -188,6 +339,13 @@ export interface SendMessageRequest {
   fileMeta?: string;
   /** base64url IV for the file metadata payload. */
   fileMetaIv?: string;
+  /**
+   * ECDSA signature (base64url) over `messageSignatureStatement(...)`, proving
+   * this message really comes from `senderDeviceId`. Optional on the wire only
+   * for devices that have not published a signing key; the server rejects an
+   * unsigned message from a device that has.
+   */
+  signature?: string;
 }
 
 export interface SendMessageResponse {
@@ -211,6 +369,8 @@ export interface PendingMessage {
   fileMeta: string | null;
   fileMetaIv: string | null;
   createdAt: number;
+  /** The sender's signature over this message, or null if it never published a signing key. */
+  signature: string | null;
 }
 
 /**

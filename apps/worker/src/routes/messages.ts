@@ -28,6 +28,14 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   const fileIv = optionalString(body.fileIv, "fileIv", 128);
   const fileMeta = optionalString(body.fileMeta, "fileMeta", 8192);
   const fileMetaIv = optionalString(body.fileMetaIv, "fileMetaIv", 128);
+  const signature = optionalString(body.signature, "signature", 512);
+
+  // A device whose peers hold a signing key for it must sign, or they would
+  // reject the message as a downgrade. Catching it here turns a client bug into
+  // a clear error instead of a message that silently arrives unverifiable.
+  if (auth.hasSigningKey && !signature) {
+    throw new ApiError("bad_request", "This device must sign its messages");
+  }
 
   if (!encryptedPayload && !fileR2Key) {
     throw new ApiError("bad_request", "Message must contain text and/or a file");
@@ -89,8 +97,8 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     c.env.DB.prepare(
       `INSERT INTO messages
          (id, group_id, sender_device_id, encrypted_payload, iv,
-          file_r2_key, file_iv, file_meta, file_meta_iv, key_epoch, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          file_r2_key, file_iv, file_meta, file_meta_iv, key_epoch, signature, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id,
       auth.groupId,
@@ -102,6 +110,7 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
       fileMeta ?? null,
       fileMetaIv ?? null,
       keyEpoch,
+      signature ?? null,
       now,
     ),
     ...recipients.map((deviceId) =>
@@ -149,6 +158,7 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
             m.file_iv AS fileIv,
             m.file_meta AS fileMeta,
             m.file_meta_iv AS fileMetaIv,
+            m.signature AS signature,
             m.created_at AS createdAt
        FROM messages m
        JOIN delivery_status ds ON ds.message_id = m.id

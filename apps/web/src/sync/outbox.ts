@@ -11,6 +11,7 @@
  * as "already sent".
  */
 
+import { type MessageSignatureFields, messageSignatureStatement } from "@file-sharer/shared";
 import { ApiError, type Auth, NetworkError, api } from "../api/client";
 import {
   bufToBase64Url,
@@ -18,9 +19,18 @@ import {
   encryptJson,
   encryptText,
   randomBytes,
+  signStatement,
 } from "../crypto/crypto";
 import { type Keyring, currentKey, loadKeyring } from "../crypto/keyring";
-import { META_SESSION, allMessages, getFile, getMessage, metaGet, putMessage } from "../db/store";
+import {
+  META_SESSION,
+  META_SIGNING_KEYPAIR,
+  allMessages,
+  getFile,
+  getMessage,
+  metaGet,
+  putMessage,
+} from "../db/store";
 import type { LocalMessage, Session } from "../types";
 
 /** Background Sync tag registered by the page and handled by the SW. */
@@ -55,6 +65,15 @@ export interface FlushOptions {
 
 /** Called after each persisted state change so live UIs can update. */
 type NotifyUpdate = (message: LocalMessage) => void;
+
+/**
+ * Signs a message with this device's identity, so the receiver can tell it
+ * really came from here and not from a server rewriting the sender. The group
+ * and sender are filled in by the flush, which is where they are known.
+ */
+type Signer = (
+  fields: Omit<MessageSignatureFields, "groupId" | "senderDeviceId">,
+) => Promise<string>;
 
 function isFlushable(message: LocalMessage): boolean {
   // "uploading" is included so an upload interrupted by a crash/kill is
@@ -91,9 +110,27 @@ async function doFlush(
 ): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, failed: 0, remaining: 0 };
 
-  const [session, keyring] = await Promise.all([metaGet<Session>(META_SESSION), loadKeyring()]);
+  const [session, keyring, signingKeyPair] = await Promise.all([
+    metaGet<Session>(META_SESSION),
+    loadKeyring(),
+    metaGet<CryptoKeyPair>(META_SIGNING_KEYPAIR),
+  ]);
   if (!session || !keyring) return result;
   const auth: Auth = { token: session.deviceAuthToken };
+  // A session that predates sender authenticity has no signing key until the
+  // page mints one (actions.ensureSigningIdentity). Sending unsigned in the
+  // meantime is the whole reason the upgrade costs the user nothing.
+  const sign: Signer | undefined = signingKeyPair
+    ? (fields) =>
+        signStatement(
+          signingKeyPair.privateKey,
+          messageSignatureStatement({
+            ...fields,
+            groupId: session.groupId,
+            senderDeviceId: session.deviceId,
+          }),
+        )
+    : undefined;
 
   const queued = (await allMessages())
     .filter(isFlushable)
@@ -106,9 +143,9 @@ async function doFlush(
 
     try {
       if (message.file) {
-        await sendQueuedFile(message, keyring, auth, notify, options.signal);
+        await sendQueuedFile(message, keyring, auth, sign, notify, options.signal);
       } else if (message.text !== undefined) {
-        await sendQueuedText(message, keyring, auth, notify, options.signal);
+        await sendQueuedText(message, keyring, auth, sign, notify, options.signal);
       } else {
         continue;
       }
@@ -226,6 +263,7 @@ async function sendQueuedText(
   message: LocalMessage,
   keyring: Keyring,
   auth: Auth,
+  sign: Signer | undefined,
   notify?: NotifyUpdate,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -233,9 +271,21 @@ async function sendQueuedText(
   const { epoch, key } = await pinEpoch(message, keyring, notify);
   const encrypted = await encryptText(key, message.text!, `text:${message.id}`);
   signal?.throwIfAborted();
+  const signed = {
+    messageId: message.id,
+    keyEpoch: epoch,
+    encryptedPayload: encrypted.ciphertext,
+    iv: encrypted.iv,
+  };
   try {
     await api.sendMessage(
-      { id: message.id, keyEpoch: epoch, encryptedPayload: encrypted.ciphertext, iv: encrypted.iv },
+      {
+        id: message.id,
+        keyEpoch: epoch,
+        encryptedPayload: encrypted.ciphertext,
+        iv: encrypted.iv,
+        ...(sign ? { signature: await sign(signed) } : {}),
+      },
       auth,
       signal,
     );
@@ -249,6 +299,7 @@ async function sendQueuedFile(
   message: LocalMessage,
   keyring: Keyring,
   auth: Auth,
+  sign: Signer | undefined,
   notify?: NotifyUpdate,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -278,6 +329,14 @@ async function sendQueuedFile(
     { name: file.name, size: file.size, mime: file.mime },
     `meta:${message.id}`,
   );
+  const signed = {
+    messageId: message.id,
+    keyEpoch: epoch,
+    fileR2Key: file.r2Key,
+    fileIv: encrypted.iv,
+    fileMeta: meta.ciphertext,
+    fileMetaIv: meta.iv,
+  };
   try {
     await api.sendMessage(
       {
@@ -287,6 +346,7 @@ async function sendQueuedFile(
         fileIv: encrypted.iv,
         fileMeta: meta.ciphertext,
         fileMetaIv: meta.iv,
+        ...(sign ? { signature: await sign(signed) } : {}),
       },
       auth,
       signal,

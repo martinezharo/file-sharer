@@ -16,6 +16,7 @@ import {
   MoreVertical,
   Plus,
   RotateCw,
+  ShieldAlert,
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -269,6 +270,18 @@ function MessageBubble({
             title={displayDeviceName}
           >
             {displayDeviceName}
+          </div>
+        )}
+        {message.senderVerified === "invalid" && (
+          <div
+            class={cx(
+              "mb-1.5 flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[11.5px] font-medium leading-tight [&_svg]:size-[13px]",
+              mine ? "bg-black/15 text-on-accent" : "bg-danger-soft text-danger",
+            )}
+            title="This message's signature doesn't match the sending device's key, so it may not come from the device it claims."
+          >
+            <ShieldAlert class="flex-none" />
+            Sender couldn&apos;t be verified
           </div>
         )}
         {message.text && <div class="whitespace-pre-wrap break-words"><Linkify text={message.text} /></div>}

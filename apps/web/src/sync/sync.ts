@@ -1,6 +1,16 @@
-import { POLL_INTERVAL_MS, type PendingMessage } from "@file-sharer/shared";
+import {
+  POLL_INTERVAL_MS,
+  type PendingMessage,
+  messageSignatureStatement,
+} from "@file-sharer/shared";
 import { ApiError, type Auth, api } from "../api/client";
 import { decryptFile, decryptJson, decryptName, decryptText } from "../crypto/crypto";
+import {
+  type DeviceIdentities,
+  loadIdentities,
+  reconcileDevices,
+  verifyDeviceSignature,
+} from "../crypto/identity";
 import { type Keyring, keyForEpoch } from "../crypto/keyring";
 import { putFile } from "../db/store";
 import { applyMessageUpdate, getLocalMessage, upsertMessage } from "../state/messages";
@@ -135,10 +145,14 @@ export async function syncNow(): Promise<void> {
     // First register every incoming message (decrypt just the metadata) so
     // all bubbles appear at once, then fetch the attachments concurrently
     // instead of one after another.
+    const identities = await senderIdentities(pending, currentSession.groupId, auth);
+
     const registered: LocalMessage[] = [];
     for (const pendingMessage of pending) {
       try {
-        registered.push(await registerIncoming(pendingMessage, ring));
+        registered.push(
+          await registerIncoming(pendingMessage, ring, identities, currentSession.groupId),
+        );
       } catch {
         // Leave it pending; the next poll will retry.
       }
@@ -223,6 +237,33 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   });
 }
 
+/**
+ * The keys to verify this batch's senders against, refreshing the roster when
+ * one of them is a device we have never heard of.
+ *
+ * That refresh is the only extra request signing adds to the hot path, and it
+ * happens exactly once per newly-added device — the alternative (verifying
+ * against a stale local view) would report a brand-new device's first message
+ * as unverified for no reason.
+ */
+async function senderIdentities(
+  pending: readonly PendingMessage[],
+  groupId: string,
+  auth: Auth,
+): Promise<DeviceIdentities> {
+  const identities = await loadIdentities();
+  if (pending.every((message) => identities[message.senderDeviceId])) return identities;
+  try {
+    const listing = await api.listDevices(auth);
+    await reconcileDevices(listing.devices, groupId);
+    return await loadIdentities();
+  } catch {
+    // Offline or rate-limited: fall back to what we hold. Unknown senders come
+    // out as "unverified", which is silent, and the next pass tries again.
+    return identities;
+  }
+}
+
 /** Run `fn` over `items`, keeping at most `limit` invocations in flight. */
 async function runWithConcurrency<T>(
   items: readonly T[],
@@ -245,6 +286,8 @@ async function runWithConcurrency<T>(
 async function registerIncoming(
   pendingMessage: PendingMessage,
   ring: Keyring,
+  identities: DeviceIdentities,
+  groupId: string,
 ): Promise<LocalMessage> {
   let local = getLocalMessage(pendingMessage.id);
 
@@ -321,12 +364,36 @@ async function registerIncoming(
           ).catch(() => pendingMessage.senderDeviceId)
         : pendingMessage.senderDeviceId;
 
+    // Who really sent this. The signature covers the sender id and every
+    // ciphertext, so a server that re-attributes a message or swaps its payload
+    // cannot produce one that checks out. Verified before the message is
+    // persisted, so the verdict is part of local history rather than something
+    // recomputed (and possibly lost) later.
+    const senderVerified = await verifyDeviceSignature(
+      identities,
+      pendingMessage.senderDeviceId,
+      messageSignatureStatement({
+        groupId,
+        messageId: pendingMessage.id,
+        senderDeviceId: pendingMessage.senderDeviceId,
+        keyEpoch: pendingMessage.keyEpoch,
+        encryptedPayload: pendingMessage.encryptedPayload,
+        iv: pendingMessage.iv,
+        fileR2Key: pendingMessage.fileR2Key,
+        fileIv: pendingMessage.fileIv,
+        fileMeta: pendingMessage.fileMeta,
+        fileMetaIv: pendingMessage.fileMetaIv,
+      }),
+      pendingMessage.signature,
+    );
+
     local = {
       id: pendingMessage.id,
       direction: "in",
       keyEpoch: pendingMessage.keyEpoch,
       senderDeviceId: pendingMessage.senderDeviceId,
       senderDeviceName,
+      senderVerified,
       text,
       file,
       createdAt: pendingMessage.createdAt,

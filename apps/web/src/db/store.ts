@@ -27,8 +27,14 @@ export const META_GROUP_KEY = "groupKey";
 /** Every GroupKey epoch this device holds (crypto/keyring.ts). */
 export const META_KEYRING = "keyring";
 export const META_DEVICE_KEYPAIR = "deviceKeyPair";
-/** Trust-on-first-use pins of other devices' ECDH public keys (crypto/pinning.ts). */
+/** This device's ECDSA signing identity (crypto/identity.ts). */
+export const META_SIGNING_KEYPAIR = "signingKeyPair";
+/** True once the signing public key reached the server (see actions.ensureSigningIdentity). */
+export const META_SIGNING_KEY_PUBLISHED = "signingKeyPublished";
+/** Pre-signing pins: a plain deviceId → ECDH key map, folded into META_DEVICE_IDENTITIES. */
 export const META_DEVICE_PINS = "devicePins";
+/** What we believe about the other devices' keys, and why (crypto/identity.ts). */
+export const META_DEVICE_IDENTITIES = "deviceIdentities";
 
 let dbPromise: Promise<IDBPDatabase<FileSharerDB>> | null = null;
 

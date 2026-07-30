@@ -5,10 +5,18 @@
  *  create group -> pair device B -> send text + file -> B fetches/decrypts/acks
  *  -> server deletes file & metadata -> revoke B -> rotate the GroupKey and
  *  check the revoked device can no longer read anything sent afterwards.
+ *  Sender authenticity rides along: A and B sign what they send and attest to
+ *  each other's keys, while groups C/D stay unsigned to prove that a device
+ *  from before signing existed keeps working untouched.
  *
  * Run with: node scripts/e2e-verify.mts
  */
 
+import {
+  type DeviceAttestation,
+  attestationStatement,
+  messageSignatureStatement,
+} from "../packages/shared/src/index.ts";
 import {
   decryptFile,
   decryptJson,
@@ -19,16 +27,21 @@ import {
   encryptText,
   exportGroupKey,
   exportPublicKey,
+  exportSigningPublicKey,
   generateDeviceKeyPair,
   generateGroupKey,
+  generateSigningKeyPair,
   importGroupKey,
   importPublicKey,
+  importSigningPublicKey,
   randomId,
   randomToken,
   rekeyContext,
   sha256Hex,
+  signStatement,
   unwrapPairingPackage,
   unwrapSecret,
+  verifyStatement,
   wrapPairingPackage,
   wrapSecret,
 } from "../apps/web/src/crypto/crypto.ts";
@@ -60,6 +73,42 @@ async function postJson(path: string, body: unknown, auth?: Auth): Promise<Respo
   });
 }
 
+/** A device's signing identity, as the sender half of authenticity needs it. */
+interface Signer {
+  deviceId: string;
+  privateKey: CryptoKey;
+}
+
+/**
+ * Send a message the way a real client does: signed when the sending device has
+ * published a signing key, unsigned when it predates them.
+ */
+async function sendMessage(
+  groupId: string,
+  body: Record<string, unknown> & { id: string; keyEpoch: number },
+  auth: Auth,
+  signer?: Signer,
+): Promise<Response> {
+  const signature = signer
+    ? await signStatement(
+        signer.privateKey,
+        messageSignatureStatement({
+          groupId,
+          messageId: body.id,
+          senderDeviceId: signer.deviceId,
+          keyEpoch: body.keyEpoch,
+          encryptedPayload: body.encryptedPayload as string | undefined,
+          iv: body.iv as string | undefined,
+          fileR2Key: body.fileR2Key as string | undefined,
+          fileIv: body.fileIv as string | undefined,
+          fileMeta: body.fileMeta as string | undefined,
+          fileMetaIv: body.fileMetaIv as string | undefined,
+        }),
+      )
+    : undefined;
+  return postJson("/api/messages", signature ? { ...body, signature } : body, auth);
+}
+
 // --- Device A: create the space -------------------------------------------
 const aKeys = await generateDeviceKeyPair();
 const groupKey = await generateGroupKey();
@@ -68,24 +117,46 @@ const groupId = randomId();
 const aId = randomId();
 const aAuth: Auth = { token };
 
+const aSigning = await generateSigningKeyPair();
+const aPublic = await exportPublicKey(aKeys.publicKey);
+const aSigningPublic = await exportSigningPublicKey(aSigning.publicKey);
+const aSigner: Signer = { deviceId: aId, privateKey: aSigning.privateKey };
+
+// The founding device vouches for itself: the root of the trust chain.
+const aAttestationFields = {
+  groupId,
+  deviceId: aId,
+  publicKey: aPublic,
+  signingPublicKey: aSigningPublic,
+  signerDeviceId: aId,
+  issuedAt: Date.now(),
+};
+const aAttestation: DeviceAttestation = {
+  ...aAttestationFields,
+  signature: await signStatement(aSigning.privateKey, attestationStatement(aAttestationFields)),
+};
+
 const aName = await encryptName(groupKey, "Device A", aId);
 const createRes = await postJson("/api/groups", {
   groupId,
   deviceAuthTokenHash: await sha256Hex(token),
-  device: { id: aId, publicKey: await exportPublicKey(aKeys.publicKey) },
+  device: { id: aId, publicKey: aPublic, signingPublicKey: aSigningPublic },
   encryptedName: aName.ciphertext,
   nameIv: aName.iv,
+  attestation: aAttestation,
 });
 check("create group returns 200", createRes.ok);
 
 // --- Device B: request pairing slot ---------------------------------------
 const bKeys = await generateDeviceKeyPair();
+const bSigning = await generateSigningKeyPair();
 const bId = randomId();
 const pairingId = randomId();
 const bPublic = await exportPublicKey(bKeys.publicKey);
+const bSigningPublic = await exportSigningPublicKey(bSigning.publicKey);
 const bToken = randomToken();
 const reqRes = await postJson(`/api/pairing/${pairingId}/request`, {
-  device: { id: bId, publicKey: bPublic },
+  device: { id: bId, publicKey: bPublic, signingPublicKey: bSigningPublic },
 });
 check("pairing request returns 200", reqRes.ok);
 
@@ -98,9 +169,29 @@ const wrapped = await wrapPairingPackage(
     keyEpoch: 1,
     deviceAuthToken: bToken,
     groupId,
+    roster: [
+      { deviceId: aId, publicKey: aPublic, signingPublicKey: aSigningPublic },
+      { deviceId: bId, publicKey: bPublic, signingPublicKey: bSigningPublic },
+    ],
   },
   pairingId,
 );
+
+// A scanned B's QR out-of-band, so it signs what it saw: this is what lets
+// every other device verify B without ever meeting it.
+const bAttestationFields = {
+  groupId,
+  deviceId: bId,
+  publicKey: bPublic,
+  signingPublicKey: bSigningPublic,
+  signerDeviceId: aId,
+  issuedAt: Date.now(),
+};
+const bAttestation: DeviceAttestation = {
+  ...bAttestationFields,
+  signature: await signStatement(aSigning.privateKey, attestationStatement(bAttestationFields)),
+};
+
 const bName = await encryptName(groupKey, "Device B", bId);
 const completeRes = await postJson(
   `/api/pairing/${pairingId}/complete`,
@@ -108,6 +199,8 @@ const completeRes = await postJson(
     wrappedPackage: wrapped.wrappedPackage,
     ephemeralPublicKey: wrapped.ephemeralPublicKey,
     scannedPublicKey: bPublic,
+    scannedSigningPublicKey: bSigningPublic,
+    attestation: bAttestation,
     encryptedName: bName.ciphertext,
     nameIv: bName.iv,
     deviceAuthTokenHash: await sha256Hex(bToken),
@@ -116,6 +209,31 @@ const completeRes = await postJson(
   aAuth,
 );
 check("pairing complete returns 200", completeRes.ok);
+
+// An attestation that vouches for a different device must be refused outright.
+const strayPairingId = randomId();
+const strayKeys = await generateDeviceKeyPair();
+const strayPublic = await exportPublicKey(strayKeys.publicKey);
+const strayId = randomId();
+await postJson(`/api/pairing/${strayPairingId}/request`, {
+  device: { id: strayId, publicKey: strayPublic, signingPublicKey: bSigningPublic },
+});
+const strayComplete = await postJson(
+  `/api/pairing/${strayPairingId}/complete`,
+  {
+    wrappedPackage: wrapped.wrappedPackage,
+    ephemeralPublicKey: wrapped.ephemeralPublicKey,
+    scannedPublicKey: strayPublic,
+    scannedSigningPublicKey: bSigningPublic,
+    attestation: bAttestation,
+    encryptedName: bName.ciphertext,
+    nameIv: bName.iv,
+    deviceAuthTokenHash: await sha256Hex(randomToken()),
+    keyEpoch: 1,
+  },
+  aAuth,
+);
+check("an attestation for another device is rejected", strayComplete.status === 400);
 
 // --- Device B: poll, unwrap, recover the GroupKey -------------------------
 const pollRes = await fetch(`${BASE}/api/pairing/${pairingId}`);
@@ -140,13 +258,22 @@ const bAuth: Auth = { token: recovered.deviceAuthToken };
 const plaintext = "Hello from A 🌍 — secret!";
 const textId = randomId();
 const encText = await encryptText(groupKey, plaintext, `text:${textId}`);
-const sendTextRes = await postJson(
-  "/api/messages",
+const sendTextRes = await sendMessage(
+  groupId,
   { id: textId, keyEpoch: 1, encryptedPayload: encText.ciphertext, iv: encText.iv },
   aAuth,
+  aSigner,
 );
 check("send text returns 200", sendTextRes.ok);
 check("server payload is ciphertext (not plaintext)", encText.ciphertext !== plaintext);
+
+// A published a signing key, so its peers expect every message to carry one.
+const unsignedRes = await postJson(
+  "/api/messages",
+  { id: randomId(), keyEpoch: 1, encryptedPayload: encText.ciphertext, iv: encText.iv },
+  aAuth,
+);
+check("an unsigned message from a signing device is rejected", unsignedRes.status === 400);
 
 // --- Device A: send a file message ----------------------------------------
 const original = new Uint8Array(1024 * 1024); // 1 MB
@@ -171,8 +298,8 @@ const metaEnc = await encryptJson(
   },
   `meta:${fileId}`,
 );
-const sendFileRes = await postJson(
-  "/api/messages",
+const sendFileRes = await sendMessage(
+  groupId,
   {
     id: fileId,
     keyEpoch: 1,
@@ -182,6 +309,7 @@ const sendFileRes = await postJson(
     fileMetaIv: metaEnc.iv,
   },
   aAuth,
+  aSigner,
 );
 check("send file message returns 200", sendFileRes.ok);
 
@@ -198,6 +326,53 @@ check(
   textMsg &&
     (await decryptText(bGroupKey, textMsg.encryptedPayload, textMsg.iv, `text:${textId}`)) ===
       plaintext,
+);
+
+// --- Sender authenticity: B verifies A really sent that text --------------
+const aVerifyKey = await importSigningPublicKey(aSigningPublic);
+const textStatement = (message: any, senderDeviceId = message.senderDeviceId): string =>
+  messageSignatureStatement({
+    groupId,
+    messageId: message.id,
+    senderDeviceId,
+    keyEpoch: message.keyEpoch,
+    encryptedPayload: message.encryptedPayload,
+    iv: message.iv,
+    fileR2Key: message.fileR2Key,
+    fileIv: message.fileIv,
+    fileMeta: message.fileMeta,
+    fileMetaIv: message.fileMetaIv,
+  });
+check("the message carries a signature", typeof textMsg?.signature === "string");
+check(
+  "B verifies the signature against A's published key",
+  await verifyStatement(aVerifyKey, textStatement(textMsg), textMsg.signature),
+);
+check(
+  "a message re-attributed to another sender fails verification",
+  !(await verifyStatement(aVerifyKey, textStatement(textMsg, bId), textMsg.signature)),
+);
+check(
+  "a swapped payload fails verification",
+  !(await verifyStatement(
+    aVerifyKey,
+    textStatement({ ...textMsg, encryptedPayload: "tampered" }),
+    textMsg.signature,
+  )),
+);
+
+// The roster is verifiable rather than merely served: B checks A's attestation
+// of its own keys before trusting anything else about the space.
+const rosterForB = (await (
+  await fetch(`${BASE}/api/devices`, { headers: headers(bAuth) })
+).json()) as { devices: any[] };
+const bEntry = rosterForB.devices.find((d) => d.id === bId);
+check("the roster publishes signing keys", bEntry?.signingPublicKey === bSigningPublic);
+const { signature: bAttSig, ...bAttFields } = bEntry.attestation as DeviceAttestation;
+check(
+  "B's roster entry is attested by A",
+  bAttFields.signerDeviceId === aId &&
+    (await verifyStatement(aVerifyKey, attestationStatement(bAttFields), bAttSig)),
 );
 
 const meta = await decryptJson<{ name: string; size: number }>(
@@ -461,10 +636,11 @@ check("a concurrent rotation from the old epoch is rejected", staleRotate.status
 // The whole point: content encrypted with the superseded key is refused.
 const staleId = randomId();
 const staleEnc = await encryptText(groupKey, "should never ship", `text:${staleId}`);
-const staleSend = await postJson(
-  "/api/messages",
+const staleSend = await sendMessage(
+  groupId,
   { id: staleId, keyEpoch: 1, encryptedPayload: staleEnc.ciphertext, iv: staleEnc.iv },
   aAuth,
+  aSigner,
 );
 check("sending under the superseded key is rejected", staleSend.status === 409);
 check(
@@ -475,10 +651,11 @@ check(
 const rotatedId = randomId();
 const rotatedText = "only readable after the rotation";
 const rotatedEnc = await encryptText(newGroupKey, rotatedText, `text:${rotatedId}`);
-const rotatedSend = await postJson(
-  "/api/messages",
+const rotatedSend = await sendMessage(
+  groupId,
   { id: rotatedId, keyEpoch: 2, encryptedPayload: rotatedEnc.ciphertext, iv: rotatedEnc.iv },
   aAuth,
+  aSigner,
 );
 check("sending under the new key is accepted", rotatedSend.ok);
 
@@ -540,6 +717,52 @@ check(
   "every remaining device is caught up",
   devicesAfterRotation.devices.every((d) => d.keyEpoch === 2),
 );
+
+// --- Upgrade path: a device that predates signing grows an identity --------
+// D was paired without a signing key (exactly like every device that existed
+// before authenticity landed) and has been receiving all along. It now
+// publishes one, with no re-pairing and nothing else disturbed.
+const dSigning = await generateSigningKeyPair();
+const dSigningPublic = await exportSigningPublicKey(dSigning.publicKey);
+const dLegacyId = randomId();
+const dLegacyEnc = await encryptText(newGroupKey, "unsigned but fine", `text:${dLegacyId}`);
+const dBeforePublish = await sendMessage(
+  groupId,
+  {
+    id: dLegacyId,
+    keyEpoch: 2,
+    encryptedPayload: dLegacyEnc.ciphertext,
+    iv: dLegacyEnc.iv,
+  },
+  dAuth,
+);
+check("a device with no signing key may still send unsigned", dBeforePublish.ok);
+
+const publishD = await postJson(
+  "/api/devices/self/signing-key",
+  { signingPublicKey: dSigningPublic },
+  dAuth,
+);
+check("a device can publish its signing key", publishD.ok);
+const republishD = await postJson(
+  "/api/devices/self/signing-key",
+  { signingPublicKey: dSigningPublic },
+  dAuth,
+);
+check("re-publishing the same key is idempotent", republishD.ok);
+const replaceD = await postJson(
+  "/api/devices/self/signing-key",
+  { signingPublicKey: aSigningPublic },
+  dAuth,
+);
+check("a signing key can never be replaced", replaceD.status === 409);
+
+const dUnsigned = await postJson(
+  "/api/messages",
+  { id: randomId(), keyEpoch: 2, encryptedPayload: "x", iv: "y" },
+  dAuth,
+);
+check("…and from then on its messages must be signed", dUnsigned.status === 400);
 
 // --- pollPairing rate limit (security: #4) --------------------------------
 // The poll endpoint is anonymous and should share the public-IP rate limit

@@ -27,9 +27,11 @@ same origin — one deploy, no CORS.
 
 - **GroupKey**: AES-GCM 256, created by the first device. Encrypts every message/file.
 - **Device keypair**: ECDH P-256. The private key is non-extractable and stored as a `CryptoKey`.
-- **Pairing**: a new device shows its public key (QR/text); an existing device wraps the GroupKey
-  plus a newly generated device token for it using an ephemeral ECDH key (ECIES). The public key travels
-  out-of-band (you scan it), so there is no MITM.
+- **Signing keypair**: ECDSA P-256, one per device, also non-extractable. One key, one job: it
+  signs messages and vouches for devices, never encrypts.
+- **Pairing**: a new device shows its public keys (QR/text); an existing device wraps the GroupKey
+  plus a newly generated device token for it using an ephemeral ECDH key (ECIES). The public keys travel
+  out-of-band (you scan them), so there is no MITM.
 - **API auth**: an independent 256-bit bearer token per device. The server stores only
   its SHA-256 and derives the device identity from it, so one device can be revoked
   without disrupting any others.
@@ -44,18 +46,31 @@ same origin — one deploy, no CORS.
   changes — device tokens are untouched (no re-pairing, no sign-out), every device keeps its
   older epochs so history stays readable, and the server refuses any message encrypted under
   a superseded epoch so there is no window during which the revoked device can still read.
+- **Sender authenticity**: every message is signed with the sending device's signing key, over
+  the sender id, the key epoch and every ciphertext in it. A server cannot re-attribute a
+  message to another device, swap its payload, or strip the signature (a device that has
+  published a signing key must sign, and its peers reject an unsigned message from it).
+- **Attested device roster**: the device that adds another one scans its keys out-of-band, so it
+  signs them — and every other device verifies that signature instead of believing the roster the
+  server serves. The space creator self-signs, a joining device inherits the introducer's verified
+  view inside its (encrypted) pairing package, and from there trust extends by attestation. Keys
+  already held are never silently replaced: a change stops a key rotation instead.
 
 ### What this does *not* protect against
 
 - **The past.** Rotation is forward-only: a revoked device keeps the epochs it already held,
   so anything it already saw stays readable to it. Nothing can undo that.
-- **A malicious server swapping a device's public key.** A rotation wraps the new key for the
-  keys the server lists. Devices are pinned on first sight (out-of-band from the QR when you
-  add them yourself) and a rotation refuses to run if a pinned key changed, but a server can
-  still lie about a device you have never seen. The real fix is the signed device roster that
-  sender authenticity will bring.
-- **Sender authenticity, replay/reorder, and metadata** (sizes, timing, device count). See
-  `TODO.md`.
+- **Devices that predate signing.** A device linked before sender authenticity existed publishes
+  a signing key on its next launch (no re-pairing, nothing user-visible), but nobody was there to
+  attest to it, so its peers adopt it on first sight — exactly as trustworthy as the pin-on-first-
+  sight behaviour it replaces, no less. Such a space stops relying on it as its devices are
+  re-linked. Messages from a device that never published a key show as neither verified nor
+  forged, and only a signature that *fails* is surfaced in the UI.
+- **The very first link of a device.** A joining device takes its introducer's word for the
+  space (it has nothing else to go on yet). Closing that would need a compare-the-numbers step,
+  which is a UX cost this project has not accepted.
+- **Replay/reorder and metadata** (sizes, timing, device count). A signature covers *what* was
+  sent, not *when* or *in what order*. See `TODO.md`.
 
 ## Development
 

@@ -1,6 +1,6 @@
 import { render } from "preact";
 import { registerSW } from "virtual:pwa-register";
-import { handleAuthFailure, resumeLinking } from "./actions";
+import { ensureSigningIdentity, handleAuthFailure, resumeLinking } from "./actions";
 import { setAuthFailureHandler } from "./api/client";
 import { consumeSharedContent } from "./share/incoming";
 import { loadMessages } from "./state/messages";
@@ -42,6 +42,10 @@ async function bootstrap(): Promise<void> {
   if (session.value) {
     await loadMessages();
     startSync();
+    // A session created before sender authenticity grows a signing identity
+    // here, silently. Not awaited: nothing in the app waits on it, and it
+    // retries on the next launch if the network is down.
+    void ensureSigningIdentity();
   } else {
     await resumeLinking();
   }

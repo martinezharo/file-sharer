@@ -6,9 +6,17 @@ import type {
   PairingRequestBody,
   PairingRequestResponse,
 } from "@file-sharer/shared";
+import { optionalAttestation } from "../attestation";
 import { authenticate, requireAdmin } from "../auth";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireInt, requireSha256Hex, requireString } from "../http";
+import {
+  optionalString,
+  readJson,
+  requireId,
+  requireInt,
+  requireSha256Hex,
+  requireString,
+} from "../http";
 import type { RouteContext } from "../router";
 import { clientIp, rateLimit } from "../security";
 
@@ -25,9 +33,11 @@ export async function requestPairing(c: RouteContext): Promise<Response> {
   if (!device || typeof device !== "object") {
     throw new ApiError("bad_request", "Missing device");
   }
+  const signingPublicKey = optionalString(device.signingPublicKey, "device.signingPublicKey", 2048);
   const descriptor: DeviceDescriptor = {
     id: requireId(device.id, "device.id"),
     publicKey: requireString(device.publicKey, "device.publicKey", 2048),
+    ...(signingPublicKey === undefined ? {} : { signingPublicKey }),
   };
 
   const existing = await c.env.DB.prepare("SELECT pairing_id FROM pairing WHERE pairing_id = ?")
@@ -56,9 +66,16 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   requireAdmin(auth);
   const pairingId = requireId(c.params.pairingId, "pairingId");
   const body = await readJson<PairingCompleteBody>(c.request);
-  const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 8192);
+  // The package also carries the introducer's view of the device roster, so its
+  // size grows with the space (a few hundred bytes per device).
+  const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 65536);
   const ephemeralPublicKey = requireString(body.ephemeralPublicKey, "ephemeralPublicKey", 2048);
   const scannedPublicKey = requireString(body.scannedPublicKey, "scannedPublicKey", 2048);
+  const scannedSigningPublicKey = optionalString(
+    body.scannedSigningPublicKey,
+    "scannedSigningPublicKey",
+    2048,
+  );
   const nameEnc = requireString(body.encryptedName, "encryptedName", 1024);
   const nameIv = requireString(body.nameIv, "nameIv", 128);
   const deviceAuthTokenHash = requireSha256Hex(body.deviceAuthTokenHash, "deviceAuthTokenHash");
@@ -94,6 +111,21 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   if (device.publicKey !== scannedPublicKey) {
     throw new ApiError("conflict", "Pairing slot public key does not match the scanned device");
   }
+  // Same check for the signing key: an attestation vouching for a key the
+  // adding device never scanned would authenticate the wrong sender forever.
+  if ((device.signingPublicKey ?? undefined) !== scannedSigningPublicKey) {
+    throw new ApiError("conflict", "Pairing slot signing key does not match the scanned device");
+  }
+
+  const attestation = optionalAttestation(body.attestation, "attestation", {
+    groupId: auth.groupId,
+    deviceId: device.id,
+    publicKey: device.publicKey,
+    ...(device.signingPublicKey === undefined ? {} : { signingPublicKey: device.signingPublicKey }),
+  });
+  if (attestation && attestation.signerDeviceId !== auth.deviceId) {
+    throw new ApiError("bad_request", "attestation must be signed by the device adding this one");
+  }
 
   const now = Date.now();
 
@@ -118,14 +150,16 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO devices
-         (id, group_id, name_enc, name_iv, public_key, auth_token_hash, role,
-          key_epoch, name_key_epoch, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'member', ?, ?, ?)
+         (id, group_id, name_enc, name_iv, public_key, signing_public_key, attestation,
+          auth_token_hash, role, key_epoch, name_key_epoch, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'member', ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          revoked_at = NULL,
          name_enc = excluded.name_enc,
          name_iv = excluded.name_iv,
          public_key = excluded.public_key,
+         signing_public_key = excluded.signing_public_key,
+         attestation = excluded.attestation,
          auth_token_hash = excluded.auth_token_hash,
          role = 'member',
          key_epoch = excluded.key_epoch,
@@ -137,6 +171,8 @@ export async function completePairing(c: RouteContext): Promise<Response> {
       nameEnc,
       nameIv,
       device.publicKey,
+      device.signingPublicKey ?? null,
+      attestation ? JSON.stringify(attestation) : null,
       deviceAuthTokenHash,
       keyEpoch,
       keyEpoch,

@@ -29,7 +29,7 @@ import {
   wrapSecret,
 } from "../crypto/crypto";
 import { type Keyring, saveKeyring, withEpoch } from "../crypto/keyring";
-import { reconcileDeviceKeys } from "../crypto/pinning";
+import { reconcileDevices } from "../crypto/identity";
 
 /** Plaintext inside a rotation blob. Only the recipient device ever sees it. */
 interface RekeyPayload {
@@ -116,7 +116,7 @@ export async function rotateGroupKey(
   const listing = await api.listDevices(auth);
   if (!listing.rotationPending) return null;
 
-  const { changed } = await reconcileDeviceKeys(listing.devices);
+  const { changed } = await reconcileDevices(listing.devices, groupId);
   if (changed.length > 0) throw new DeviceKeyMismatchError();
 
   const epoch = listing.keyEpoch + 1;

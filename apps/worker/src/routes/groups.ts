@@ -1,6 +1,7 @@
 import type { CreateGroupRequest, CreateGroupResponse } from "@file-sharer/shared";
+import { optionalAttestation } from "../attestation";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireSha256Hex, requireString } from "../http";
+import { optionalString, readJson, requireId, requireSha256Hex, requireString } from "../http";
 import type { RouteContext } from "../router";
 import { clientIp, rateLimit } from "../security";
 
@@ -21,8 +22,17 @@ export async function createGroup(c: RouteContext): Promise<Response> {
   }
   const deviceId = requireId(device.id, "device.id");
   const publicKey = requireString(device.publicKey, "device.publicKey", 2048);
+  const signingPublicKey = optionalString(device.signingPublicKey, "device.signingPublicKey", 2048);
   const nameEnc = requireString(body.encryptedName, "encryptedName", 1024);
   const nameIv = requireString(body.nameIv, "nameIv", 128);
+  // The founding device vouches for itself: this is the root of the trust chain
+  // every device that joins later inherits through its pairing package.
+  const attestation = optionalAttestation(body.attestation, "attestation", {
+    groupId,
+    deviceId,
+    publicKey,
+    ...(signingPublicKey === undefined ? {} : { signingPublicKey }),
+  });
 
   const existing = await c.env.DB.prepare("SELECT id FROM groups WHERE id = ?")
     .bind(groupId)
@@ -39,8 +49,21 @@ export async function createGroup(c: RouteContext): Promise<Response> {
       now,
     ),
     c.env.DB.prepare(
-      "INSERT INTO devices (id, group_id, name_enc, name_iv, public_key, auth_token_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, 'owner', ?)",
-    ).bind(deviceId, groupId, nameEnc, nameIv, publicKey, deviceAuthTokenHash, now),
+      `INSERT INTO devices
+         (id, group_id, name_enc, name_iv, public_key, signing_public_key, attestation,
+          auth_token_hash, role, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'owner', ?)`,
+    ).bind(
+      deviceId,
+      groupId,
+      nameEnc,
+      nameIv,
+      publicKey,
+      signingPublicKey ?? null,
+      attestation ? JSON.stringify(attestation) : null,
+      deviceAuthTokenHash,
+      now,
+    ),
   ]);
 
   return json({ ok: true } satisfies CreateGroupResponse);

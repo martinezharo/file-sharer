@@ -31,10 +31,12 @@ Biggest remaining items (need design decisions, don't do blindly):
   keeps its old epochs, so history stays readable, and no token is touched, so nothing
   re-pairs. Existing spaces default to epoch 1 and are unaffected until their first rotation.
 
-- **Sender signing** (authenticity). 🟠🏗️ Needs a second signing keypair per device and a
-  signed message format. Now also the fix for the one rotation trade-off left open: the
-  device roster a rotation wraps keys for is currently trusted on first sight (TOFU pins in
-  `apps/web/src/crypto/pinning.ts`) rather than signed.
+- **Sender authenticity is now implemented.** Every device has an ECDSA P-256 signing keypair
+  (`0006_sender_signing.sql`); messages are signed over sender + epoch + every ciphertext, and the
+  device roster is attested by the device that scanned each newcomer's QR rather than trusted on
+  first sight. Devices from before this publish a signing key on their next launch with no
+  re-pairing; their key is adopted on first sight because nobody was there to attest to it, which
+  is the one residual (documented in the README).
 - **Real-time delivery (WebSocket/Durable Objects)** replacing the 8 s poll. 🟠🏗️
 - **At-rest lock (PIN/WebAuthn)** + **encrypted recovery export** + **Web Push**. 🟠🏗️ See §7.
 
@@ -62,15 +64,34 @@ Biggest remaining items (need design decisions, don't do blindly):
   **concurrent rotations can't split-brain** (every statement guarded on the previous epoch, CAS
   last), and **no exposure window** — the server rejects any message encrypted under a
   superseded epoch with `key_rotated`, and the client re-encrypts under the new key. What
-  remains, unavoidably: the revoked device keeps what it already saw, and the roster a rotation
-  wraps for is TOFU-pinned rather than signed (see §0 sender signing).
+  remains, unavoidably: the revoked device keeps what it already saw. (The roster a rotation
+  wraps for is no longer TOFU-only — it is attested, see sender authenticity below.)
 - [x] ~~🟠🛠️ **Single shared group token + self-asserted `X-Device-Id`.**~~ Replaced with
   independent random bearer tokens whose hashes live on each device row. The server derives
   both device and group identity from the token, and revocation immediately rejects only that
   credential. Remaining defense-in-depth: signed requests can later provide proof of possession
   of the device ECDH/signing key in addition to possession of the bearer.
-- [ ] 🟠🏗️ **No sender authenticity.** `senderDeviceId`/`senderName` are provided by the server, not the sender. A malicious server can forge who sent what. Add a **signing** keypair per device (ECDSA/Ed25519) and sign messages; the receiver verifies with the public key published at pairing time.
-- [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages. Consider per-device signed sequence numbers. At minimum, document it in the threat model.
+- [x] ~~🟠🏗️ **No sender authenticity.**~~ Implemented. Each device now holds a second,
+  non-extractable **ECDSA P-256** keypair alongside its ECDH one, and every message carries a
+  signature over `groupId`, message id, sender id, key epoch and *every ciphertext in it*
+  (`messageSignatureStatement` in `packages/shared`) — so the server can neither re-attribute a
+  message nor swap a payload under a signature that still checks out. `createdAt` is deliberately
+  outside the statement: it is server-assigned, so the sender cannot sign it (ordering/replay stays
+  §1's open item). Downgrades are closed from both ends: a device that has published a signing key
+  must sign (the Worker rejects an unsigned message from it) and, more importantly, a receiver
+  treats a *missing* signature from a device it holds a key for as `invalid`, not as legacy.
+  The other half is the **attested roster**, which also closes the rotation trade-off that was
+  left open: the device that adds another one scans its keys out-of-band, so it signs them
+  (`DeviceAttestation`), and everyone else verifies that signature instead of believing the
+  roster. The space creator self-signs; a joining device inherits its introducer's verified view
+  inside the (already E2E-encrypted) pairing package; from there trust extends by attestation
+  chains, resolved to a fixpoint in `apps/web/src/crypto/identity.ts` (which replaces
+  `pinning.ts`). Cost to the user: **zero** — no re-pairing, no sign-out, no verification step, no
+  new UI except a warning on a signature that actually fails. Residuals, both documented in the
+  README: a device that predates signing publishes its key with nobody to attest to it (adopted on
+  first sight, exactly as before), and a joining device still takes its introducer's word on its
+  very first link, which only a compare-the-numbers step could close.
+- [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages: a signature proves *what* was sent, not *when* or *in what order*. Now cheap to close — the signing key is already there, so it is a per-device monotonic counter inside the signed statement (and a receiver-side "highest seen" per sender). Documented in the README meanwhile.
 - [x] ~~🟡⚡ **Pairing slot not deleted on completion.**~~ `pollPairing` left the (encrypted) package reachable by `pairingId` until cron reaped it (≤10 min). Fixed: the joining device now calls a new `DELETE /api/pairing/:pairingId` endpoint right after it successfully unwraps the package and persists its session; cron remains the safety net if that call never arrives.
 - [x] ~~🟡⚡ **`completePairing` registers the slot's public key (step 1, anonymous), not the scanned one.**~~ The wrap targeted the scanned QR key, but D1 stored `slot.newDevice.publicKey`, with nothing checking they matched. Fixed: the existing device now also sends `scannedPublicKey` in `PairingCompleteBody`, and the server rejects the request if it doesn't match the slot's.
 - [x] ~~🟡🛠️ **JSON bodies are parsed before size validation.**~~ `readJson` read the whole body even though `encryptedPayload` is capped at 1 MB *afterwards*. Fixed: added an early `Content-Length` check (`MAX_JSON_BODY_SIZE`, 2 MB) in `apps/worker/src/http.ts` that rejects oversized bodies with 413 before parsing.
@@ -158,6 +179,6 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 8. Documentation / observability
 
-- [ ] 🟡⚡ Explicitly document the **threat model** (what the server sees, what it does NOT protect: metadata, sender authenticity, replay) in the README. Partially done: the README now has a "What this does *not* protect against" section covering rotation's limits, sender authenticity, replay and metadata; it still needs the positive half (exactly what the server does see).
+- [ ] 🟡⚡ Explicitly document the **threat model** (what the server sees, what it does NOT protect: metadata, replay) in the README. Partially done: the README's "What this does *not* protect against" now covers rotation's limits, the two residuals of sender authenticity, replay and metadata; it still needs the positive half (exactly what the server does see).
 - [x] ~~🔵⚡ Document the **real revocation process** and its current limits.~~ In the README's crypto model, alongside the honest list of what rotation does not cover.
 - [ ] 🔵⚡ Review that the Worker's observability (`observability.enabled`) **doesn't log** sensitive material (today `console.error` for unhandled errors; correct, keep watching).

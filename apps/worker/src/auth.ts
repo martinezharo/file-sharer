@@ -12,6 +12,12 @@ export interface AuthContext {
   groupKeyEpoch: number;
   /** A revocation is still waiting for its key rotation. */
   rotationPending: boolean;
+  /**
+   * This device has published a signing key, so everything it sends must be
+   * signed. Lets the server refuse an unsigned message from a device its peers
+   * will expect a signature from, instead of letting it land as unverifiable.
+   */
+  hasSigningKey: boolean;
 }
 
 /** SHA-256 of a UTF-8 string as lowercase hex. */
@@ -39,6 +45,7 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
   const row = await env.DB.prepare(
     `SELECT d.group_id AS groupId, d.id AS deviceId, d.role AS role,
             d.revoked_at AS revokedAt, d.key_epoch AS keyEpoch,
+            d.signing_public_key AS signingPublicKey,
             g.key_epoch AS groupKeyEpoch, g.rotation_pending AS rotationPending
        FROM devices d
        JOIN groups g ON g.id = d.group_id
@@ -51,6 +58,7 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
       role: DeviceRole;
       revokedAt: number | null;
       keyEpoch: number;
+      signingPublicKey: string | null;
       groupKeyEpoch: number;
       rotationPending: number;
     }>();
@@ -71,6 +79,7 @@ export async function authenticate(request: Request, env: Env): Promise<AuthCont
     keyEpoch: row.keyEpoch,
     groupKeyEpoch: row.groupKeyEpoch,
     rotationPending: row.rotationPending === 1,
+    hasSigningKey: row.signingPublicKey !== null,
   };
 }
 

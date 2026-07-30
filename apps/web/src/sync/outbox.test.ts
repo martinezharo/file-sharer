@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
     deviceAuthToken: "token",
   } satisfies Session,
   keyring: { current: 3, keys: new Map<number, CryptoKey>([[3, {} as CryptoKey]]) },
+  signingKeyPair: { privateKey: {} as CryptoKey, publicKey: {} as CryptoKey } as CryptoKeyPair,
   uploadFile: vi.fn(),
   sendMessage: vi.fn(),
 }));
@@ -19,11 +20,18 @@ vi.mock("../db/store", () => ({
   META_GROUP_KEY: "groupKey",
   META_KEYRING: "keyring",
   META_SESSION: "session",
+  META_SIGNING_KEYPAIR: "signingKeyPair",
   allMessages: async () => [...state.messages.values()],
   getFile: async (key: string) => state.files.get(key),
   getMessage: async (id: string) => state.messages.get(id),
   metaGet: async (key: string) =>
-    key === "session" ? state.session : key === "keyring" ? state.keyring : undefined,
+    key === "session"
+      ? state.session
+      : key === "keyring"
+        ? state.keyring
+        : key === "signingKeyPair"
+          ? state.signingKeyPair
+          : undefined,
   metaSet: async () => {},
   metaDelete: async () => {},
   putMessage: async (message: LocalMessage) => {
@@ -37,6 +45,7 @@ vi.mock("../crypto/crypto", () => ({
   encryptJson: async () => ({ ciphertext: "encrypted-meta", iv: "meta-iv" }),
   encryptText: async () => ({ ciphertext: "encrypted-text", iv: "text-iv" }),
   randomBytes: () => new Uint8Array(12),
+  signStatement: async (_key: CryptoKey, statement: string) => `signed(${statement})`,
 }));
 
 vi.mock("../api/client", () => {
@@ -60,6 +69,7 @@ vi.mock("../api/client", () => {
   };
 });
 
+import { messageSignatureStatement } from "@file-sharer/shared";
 import { flushQueuedOutbox } from "./outbox";
 
 function queuedFile(id: string, createdAt: number): LocalMessage {
@@ -117,6 +127,45 @@ describe("outbox batch handoff", () => {
       { token: "token" },
       undefined,
     );
+  });
+
+  it("signs the ciphertext it sends, so the server can't re-attribute it", async () => {
+    const message = addFiles(1)[0]!;
+
+    await flushQueuedOutbox();
+
+    // Signing the ciphertexts (not just the id) is what stops a server from
+    // keeping the signature while swapping the payload underneath it.
+    expect(state.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signature: `signed(${messageSignatureStatement({
+          groupId: "group",
+          messageId: message.id,
+          senderDeviceId: "device",
+          keyEpoch: 3,
+          fileR2Key: message.file!.r2Key,
+          fileIv: "pinned-iv",
+          fileMeta: "encrypted-meta",
+          fileMetaIv: "meta-iv",
+        })})`,
+      }),
+      { token: "token" },
+      undefined,
+    );
+  });
+
+  it("sends unsigned while a pre-signing session has no identity yet", async () => {
+    const original = state.signingKeyPair;
+    // @ts-expect-error deliberately simulating a session that predates signing
+    state.signingKeyPair = undefined;
+    addFiles(1);
+
+    await flushQueuedOutbox();
+
+    // Nothing breaks: peers hold no signing key for this device either, so the
+    // message arrives merely unverifiable rather than rejected.
+    expect(state.sendMessage.mock.calls[0]![0]).not.toHaveProperty("signature");
+    state.signingKeyPair = original;
   });
 
   it("re-queues the interrupted file and does not start the next one", async () => {

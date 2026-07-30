@@ -7,6 +7,10 @@
  *    device rotates it, so keys are versioned by epoch and each device keeps
  *    every epoch it has held (crypto/keyring.ts) to stay able to read history.
  *  - Device keypair: ECDH P-256. The private key is non-extractable.
+ *  - Signing keypair: ECDSA P-256, also non-extractable. Separate from the ECDH
+ *    key on purpose — one key, one job — and used both to sign every message
+ *    (so the server cannot forge who sent what) and to attest to the keys of a
+ *    device this one adds (so the roster is verifiable rather than trusted).
  *  - ECIES wrap: an ephemeral ECDH key + the recipient's public key derive a
  *    one-time AES-GCM key that encrypts a JSON secret. Used for the pairing
  *    package and for handing a rotated GroupKey to each remaining device.
@@ -18,6 +22,8 @@ import type { PairingPayload } from "@file-sharer/shared";
 
 const AES = "AES-GCM";
 const EC = "ECDH";
+const SIG = "ECDSA";
+const SIG_HASH = "SHA-256";
 const CURVE = "P-256";
 const IV_BYTES = 12;
 
@@ -127,6 +133,65 @@ export function importPublicKey(spki: string): Promise<CryptoKey> {
     true,
     [],
   );
+}
+
+// ---------------------------------------------------------------------------
+// Signing keypair (ECDSA P-256)
+// ---------------------------------------------------------------------------
+
+/**
+ * The device's long-term signing identity. Non-extractable, like the ECDH key:
+ * it can never leave this device, so a signature is proof that *this* device
+ * produced the statement — which is the whole point of the pair.
+ */
+export function generateSigningKeyPair(): Promise<CryptoKeyPair> {
+  return crypto.subtle.generateKey({ name: SIG, namedCurve: CURVE }, false, ["sign", "verify"]);
+}
+
+export async function exportSigningPublicKey(key: CryptoKey): Promise<string> {
+  return bufToBase64Url(await crypto.subtle.exportKey("spki", key));
+}
+
+export function importSigningPublicKey(spki: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "spki",
+    base64UrlToBuf(spki),
+    { name: SIG, namedCurve: CURVE },
+    true,
+    ["verify"],
+  );
+}
+
+/** Sign a canonical statement string (see @file-sharer/shared). */
+export async function signStatement(privateKey: CryptoKey, statement: string): Promise<string> {
+  const signature = await crypto.subtle.sign(
+    { name: SIG, hash: SIG_HASH },
+    privateKey,
+    new TextEncoder().encode(statement),
+  );
+  return bufToBase64Url(signature);
+}
+
+/**
+ * Verify a statement's signature. Returns false rather than throwing for a
+ * malformed key or signature too: to the caller, "this doesn't check out" and
+ * "this isn't even well-formed" are the same answer.
+ */
+export async function verifyStatement(
+  publicKey: CryptoKey,
+  statement: string,
+  signature: string,
+): Promise<boolean> {
+  try {
+    return await crypto.subtle.verify(
+      { name: SIG, hash: SIG_HASH },
+      publicKey,
+      base64UrlToBuf(signature),
+      new TextEncoder().encode(statement),
+    );
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
