@@ -27,7 +27,7 @@ import {
   sendTextMessage,
 } from "../actions";
 import { getFile } from "../db/store";
-import { getClipboardImages } from "../share/clipboard";
+import { getClipboardImages } from "../share/transfer";
 import { messages } from "../state/messages";
 import { session } from "../state/session";
 import { composerDraft } from "../state/ui";

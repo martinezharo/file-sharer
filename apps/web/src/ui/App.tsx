@@ -7,6 +7,7 @@ import { online, view, type View } from "../state/ui";
 import { Chat } from "./Chat";
 import { Button, cx, IconButton, Logo, Modal, Spinner, Toasts } from "./components";
 import { DeviceManager } from "./DeviceManager";
+import { DropZone } from "./DropZone";
 import { Landing } from "./Landing";
 
 const NAV: Array<{ id: View; label: string; icon: typeof MessagesSquare }> = [
@@ -15,6 +16,17 @@ const NAV: Array<{ id: View; label: string; icon: typeof MessagesSquare }> = [
 ];
 
 export function App(): JSX.Element {
+  return (
+    <>
+      <CurrentView />
+      {/* Outside the view switch: a file dropped on the landing or while the
+          session is still loading must not navigate the app away either. */}
+      <DropZone />
+    </>
+  );
+}
+
+function CurrentView(): JSX.Element {
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
 
   if (!ready.value) {
