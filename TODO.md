@@ -101,7 +101,13 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 - [ ] 🟡⚡ **No retry for failed text.** A `failed` outgoing message shows an alert icon but isn't tappable (files do have retry). Add tap-to-retry.
 - [ ] 🟡🛠️ **No image/video previews.** Everything renders as a generic file card. Render inline thumbnails/previews from the decrypted blob (`URL.createObjectURL`).
-- [ ] 🟡⚡ **No drag-and-drop** or **paste-image** to attach (button only). Add a drop zone and a paste handler to the composer.
+- [x] ~~🟡⚡ **No drag-and-drop** or **paste-image** to attach (button only).~~ Both done.
+  Paste is handled in the composer (images only — the text flavour *is* the message) and
+  drop works over the whole window, not just the composer: `apps/web/src/ui/DropZone.tsx`
+  binds `window` in the capture phase so a stray drop can never fall through to the
+  browser's default of navigating away, and it's mounted outside the view switch so a drop
+  on the landing doesn't discard a session in progress. Dropped folders are expanded via the
+  entry API. The shared `DataTransfer` extraction lives in `apps/web/src/share/transfer.ts`.
 - [ ] 🟡🛠️ **No real upload/download progress** for large files (spinner only). Show %.
 - [ ] 🟡🛠️ **No delete/clear history** or single-message delete (local or for everyone). Add message management.
 - [ ] 🟡🛠️ **No date separators** in the chat (time only). Group by day.
