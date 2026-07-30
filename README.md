@@ -41,10 +41,12 @@ same origin — one deploy, no CORS.
 
 ```bash
 pnpm install
-# one-time: create D1 + R2 and apply the migration (see apps/worker/README)
-pnpm db:migrate:local
 pnpm dev            # worker (wrangler dev) + web (vite) together
 ```
+
+`pnpm dev` applies any pending local D1 migration before starting the Worker, so pulling a
+branch that adds one can't leave you with a schema the API doesn't match. See
+`apps/worker/README.md` for the one-time D1/R2 setup.
 
 ## Deploy
 
@@ -53,4 +55,5 @@ pnpm db:migrate:remote
 pnpm deploy         # builds the PWA and deploys the Worker (serves PWA + API)
 ```
 
-See `apps/worker/README.md` for the one-time D1/R2 bucket and lifecycle setup.
+Remote migrations stay a deliberate step: they run against live data, and a rollout may
+need them applied before or after the Worker depending on the change.
