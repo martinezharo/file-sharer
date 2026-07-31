@@ -43,6 +43,7 @@ import {
   putOutgoingFileMessages,
 } from "./db/store";
 import { applyMessageUpdate, loadMessages, removeMessage, upsertMessage } from "./state/messages";
+import { forgetLock } from "./state/lock";
 import {
   applyKeyring,
   applySigningKeyPair,
@@ -697,7 +698,21 @@ export async function logout(): Promise<void> {
   // not carry the previous session's answer over.
   signingKeyPublished = false;
   await resetSession();
+  // `resetSession` wipes the database, envelope included, so the in-memory lock
+  // state has to go with it or the app would ask to unlock a vault that is gone.
+  forgetLock();
   view.value = "chat";
+}
+
+/**
+ * Bring the app up after a successful unlock. Same work `bootstrap()` does for
+ * an unlocked device — a locked one simply could not do it any earlier, because
+ * until the secret arrived there was no session and no readable history.
+ */
+export async function resumeAfterUnlock(): Promise<void> {
+  await loadMessages();
+  startSync();
+  void ensureSigningIdentity();
 }
 
 /**

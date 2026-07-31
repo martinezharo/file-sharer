@@ -1,7 +1,8 @@
-import { AlertTriangle, LogOut, MessagesSquare, MonitorSmartphone } from "lucide-preact";
+import { AlertTriangle, LockKeyhole, LogOut, MessagesSquare, MonitorSmartphone } from "lucide-preact";
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
-import { logout } from "../actions";
+import { logout, resumeAfterUnlock } from "../actions";
+import { lockConfigured, lockNow, locked } from "../state/lock";
 import { ready, session, sessionRevoked } from "../state/session";
 import { online, view, type View } from "../state/ui";
 import { Chat } from "./Chat";
@@ -9,6 +10,7 @@ import { Button, cx, IconButton, Logo, Modal, Spinner, Toasts } from "./componen
 import { DeviceManager } from "./DeviceManager";
 import { DropZone } from "./DropZone";
 import { Landing } from "./Landing";
+import { LockScreen } from "./LockScreen";
 
 const NAV: Array<{ id: View; label: string; icon: typeof MessagesSquare }> = [
   { id: "chat", label: "Messages", icon: MessagesSquare },
@@ -35,6 +37,12 @@ function CurrentView(): JSX.Element {
         <Spinner large />
       </div>
     );
+  }
+
+  // A locked device has nothing loaded to show: the session and every stored
+  // message are ciphertext until the secret arrives.
+  if (locked.value) {
+    return <LockScreen onUnlocked={() => void resumeAfterUnlock()} />;
   }
 
   if (!session.value) {
@@ -68,6 +76,12 @@ function CurrentView(): JSX.Element {
         </nav>
 
         <div class="mt-auto flex flex-col gap-[3px]">
+          {lockConfigured.value && (
+            <NavItem onClick={lockNow}>
+              <LockKeyhole />
+              Lock this device
+            </NavItem>
+          )}
           <div class="flex items-center gap-2.5 px-[11px] py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
             <span
               class={cx(

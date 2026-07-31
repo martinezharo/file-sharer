@@ -39,6 +39,20 @@ export const sessionRevoked = signal(false);
 const SESSION_KEY = META_SESSION;
 const DEVICE_KEYPAIR_KEY = META_DEVICE_KEYPAIR;
 
+/**
+ * Notified whenever the material an at-rest vault holds changes (a rotation
+ * adds a key epoch, a signing identity appears). Registered by `state/lock.ts`
+ * rather than imported from it: this module is what the lock builds on, and a
+ * cycle between the two would be a real one — same shape as the API layer's
+ * auth-failure handler.
+ */
+type SecretsChangedHandler = () => void;
+let secretsChanged: SecretsChangedHandler | null = null;
+
+export function setSecretsChangedHandler(handler: SecretsChangedHandler | null): void {
+  secretsChanged = handler;
+}
+
 export function authHeaders(): Auth {
   const current = session.value;
   if (!current) throw new Error("Not signed in");
@@ -87,11 +101,13 @@ export async function persistSession(
   deviceKeyPair.value = newKeyPair;
   signingKeyPair.value = newSigningKeyPair ?? null;
   sessionRevoked.value = false;
+  secretsChanged?.();
 }
 
 /** Mirror a signing identity minted after the fact (see actions.ensureSigningIdentity). */
 export function applySigningKeyPair(pair: CryptoKeyPair): void {
   signingKeyPair.value = pair;
+  secretsChanged?.();
 }
 
 /**
@@ -100,6 +116,10 @@ export function applySigningKeyPair(pair: CryptoKeyPair): void {
  */
 export function applyKeyring(updated: Keyring): void {
   keyring.value = updated;
+  // A rotation just added an epoch. If this device has an at-rest lock, the
+  // sealed envelope still holds the old keyring, and an unlock that restored it
+  // would leave the device unable to read anything sent since.
+  secretsChanged?.();
 }
 
 /** Leave the space and wipe all local data on this device. */

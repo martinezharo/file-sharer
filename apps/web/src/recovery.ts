@@ -1,0 +1,233 @@
+/**
+ * Encrypted recovery file: the answer to "every device is gone".
+ *
+ * Until now a space had exactly as many copies of its keys as it had linked
+ * devices, and losing all of them lost the space for good — there is no server
+ * copy to fall back on, by design. A recovery file is a copy the user keeps:
+ * this device's credentials and every GroupKey epoch it holds, sealed under a
+ * randomly generated recovery code that is shown once and never stored.
+ *
+ * Two properties it deliberately keeps:
+ *
+ *  - **The code is generated, not chosen.** 160 bits of entropy, because unlike
+ *    the at-rest lock this file will sit in a password manager or a drawer,
+ *    away from the device that would otherwise rate-limit guesses.
+ *  - **It restores a device, not a new one.** Recovery replays the exporting
+ *    device's own identity, so nothing has to be re-authorised by a device that
+ *    no longer exists. That is also why a device whose keys predate exportable
+ *    key material cannot produce one: the file would restore a device unable to
+ *    receive a future rotated GroupKey, which is worse than no file at all.
+ *
+ * A file is a snapshot. Revoking a device rotates the key, and a file exported
+ * before that rotation opens history but not what came after — so the UI
+ * flags a stale one (`META_RECOVERY_EPOCH`).
+ */
+
+import { INITIAL_KEY_EPOCH } from "@file-sharer/shared";
+import {
+  importDeviceKeyPair,
+  importGroupKey,
+  importSigningKeyPair,
+  randomBytes,
+} from "./crypto/crypto";
+import type { SerializedKeyPair } from "./crypto/crypto";
+import type { Keyring } from "./crypto/keyring";
+import {
+  PBKDF2_ITERATIONS,
+  type SealedBlob,
+  type SerializedKeyring,
+  keysFromPassphrase,
+  newSalt,
+  open,
+  seal,
+} from "./crypto/vault";
+import { META_RECOVERY_EPOCH, metaSet } from "./db/store";
+import { currentSecrets } from "./state/lock";
+import { loadMessages } from "./state/messages";
+import { persistSession } from "./state/session";
+import { startSync } from "./sync/sync";
+import type { Session } from "./types";
+
+/** Bound as AAD, so a blob cannot be replayed as an at-rest vault or vice versa. */
+const RECOVERY_AAD = "file-sharer-recovery:1";
+
+/**
+ * Crockford-style alphabet: no I, L, O or U, so nothing in a handwritten code
+ * can be confused with 1, 0 or an accidental profanity.
+ */
+const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CODE_CHARS = 32;
+const CODE_GROUP = 4;
+
+export interface RecoveryFile {
+  kind: "file-sharer-recovery";
+  v: 1;
+  createdAt: number;
+  /** Epoch the space was at when this was written; a restore below it is stale. */
+  keyEpoch: number;
+  salt: string;
+  iterations: number;
+  sealed: SealedBlob;
+}
+
+interface RecoveryPayload {
+  session: Session;
+  keyring: SerializedKeyring;
+  deviceKeyPair: SerializedKeyPair;
+  signingKeyPair: SerializedKeyPair | null;
+}
+
+export class NoExportableKeysError extends Error {
+  constructor() {
+    super(
+      "This device was linked before recovery files existed, so its keys can't leave it. " +
+        "Link it again (or link another device) to be able to create one.",
+    );
+    this.name = "NoExportableKeysError";
+  }
+}
+
+export class BadRecoveryFileError extends Error {
+  constructor(message = "That file isn't a file-sharer recovery file.") {
+    super(message);
+    this.name = "BadRecoveryFileError";
+  }
+}
+
+export class WrongRecoveryCodeError extends Error {
+  constructor() {
+    super("That recovery code doesn't open this file.");
+    this.name = "WrongRecoveryCodeError";
+  }
+}
+
+/** A fresh 160-bit code, grouped for reading aloud and typing back. */
+export function generateRecoveryCode(): string {
+  const bytes = randomBytes(CODE_CHARS);
+  let code = "";
+  for (let i = 0; i < CODE_CHARS; i++) {
+    if (i > 0 && i % CODE_GROUP === 0) code += "-";
+    code += ALPHABET[bytes[i]! % ALPHABET.length];
+  }
+  return code;
+}
+
+/**
+ * Accept a code however it was written down: lower case, spaced, hyphenated, or
+ * with the O/0 and I/1 substitutions people make without noticing.
+ */
+export function normalizeRecoveryCode(code: string): string {
+  return code
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, "")
+    .replace(/O/g, "0")
+    .replace(/[IL]/g, "1")
+    .replace(/U/g, "V");
+}
+
+/**
+ * Build the recovery file for the current session. The code is returned, not
+ * stored: this is the only moment it exists anywhere.
+ */
+export async function createRecoveryFile(): Promise<{ file: RecoveryFile; code: string }> {
+  // The content key is irrelevant to a recovery file (a restored device derives
+  // its own), but `currentSecrets` is the one place that knows how to collect
+  // everything else, so it gets a throwaway.
+  const throwaway = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
+    "encrypt",
+    "decrypt",
+  ]);
+  const secrets = await currentSecrets(throwaway);
+  if (!secrets.deviceKeyPair) throw new NoExportableKeysError();
+
+  const code = generateRecoveryCode();
+  const salt = newSalt();
+  const { vaultKey } = await keysFromPassphrase(
+    normalizeRecoveryCode(code),
+    salt,
+    PBKDF2_ITERATIONS,
+  );
+
+  const payload: RecoveryPayload = {
+    session: secrets.session,
+    keyring: secrets.keyring,
+    deviceKeyPair: secrets.deviceKeyPair,
+    signingKeyPair: secrets.signingKeyPair,
+  };
+
+  const file: RecoveryFile = {
+    kind: "file-sharer-recovery",
+    v: 1,
+    createdAt: Date.now(),
+    keyEpoch: secrets.keyring.current,
+    salt,
+    iterations: PBKDF2_ITERATIONS,
+    sealed: await seal(vaultKey, payload, RECOVERY_AAD),
+  };
+
+  await metaSet(META_RECOVERY_EPOCH, file.keyEpoch);
+  return { file, code };
+}
+
+/** Suggested file name: dated, and obvious about what it is. */
+export function recoveryFileName(file: RecoveryFile): string {
+  const date = new Date(file.createdAt).toISOString().slice(0, 10);
+  return `file-sharer-recovery-${date}.json`;
+}
+
+function parseRecoveryFile(text: string): RecoveryFile {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new BadRecoveryFileError();
+  }
+  const file = parsed as Partial<RecoveryFile>;
+  if (file?.kind !== "file-sharer-recovery" || !file.sealed || !file.salt) {
+    throw new BadRecoveryFileError();
+  }
+  if (file.v !== 1) {
+    throw new BadRecoveryFileError("That recovery file was written by a newer version.");
+  }
+  return file as RecoveryFile;
+}
+
+/**
+ * Restore a space from a recovery file, replacing whatever this device holds.
+ *
+ * The restored device *is* the exported one — same id, same credential, same
+ * keys — so it needs nothing from any other device to start working again.
+ */
+export async function restoreFromRecoveryFile(text: string, code: string): Promise<void> {
+  const file = parseRecoveryFile(text);
+  const { vaultKey } = await keysFromPassphrase(
+    normalizeRecoveryCode(code),
+    file.salt,
+    file.iterations ?? PBKDF2_ITERATIONS,
+  );
+
+  let payload: RecoveryPayload;
+  try {
+    payload = await open<RecoveryPayload>(vaultKey, file.sealed, RECOVERY_AAD);
+  } catch {
+    throw new WrongRecoveryCodeError();
+  }
+
+  const ring: Keyring = {
+    current: payload.keyring.current || INITIAL_KEY_EPOCH,
+    keys: new Map(),
+  };
+  for (const [epoch, raw] of payload.keyring.keys) {
+    ring.keys.set(epoch, await importGroupKey(raw));
+  }
+
+  await persistSession(
+    payload.session,
+    ring,
+    await importDeviceKeyPair(payload.deviceKeyPair),
+    payload.signingKeyPair ? await importSigningKeyPair(payload.signingKeyPair) : undefined,
+  );
+  await metaSet(META_RECOVERY_EPOCH, ring.current);
+  await loadMessages();
+  startSync();
+}

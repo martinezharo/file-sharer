@@ -26,9 +26,9 @@ same origin — one deploy, no CORS.
 ## Crypto model
 
 - **GroupKey**: AES-GCM 256, created by the first device. Encrypts every message/file.
-- **Device keypair**: ECDH P-256. The private key is non-extractable and stored as a `CryptoKey`.
-- **Signing keypair**: ECDSA P-256, one per device, also non-extractable. One key, one job: it
-  signs messages and vouches for devices, never encrypts.
+- **Device keypair**: ECDH P-256, stored as a `CryptoKey`.
+- **Signing keypair**: ECDSA P-256, one per device. One key, one job: it signs messages and
+  vouches for devices, never encrypts.
 - **Pairing**: a new device shows its public keys (QR/text); an existing device wraps the GroupKey
   plus a newly generated device token for it using an ephemeral ECDH key (ECIES). The public keys travel
   out-of-band (you scan them), so there is no MITM.
@@ -50,6 +50,19 @@ same origin — one deploy, no CORS.
   the sender id, the key epoch and every ciphertext in it. A server cannot re-attribute a
   message to another device, swap its payload, or strip the signature (a device that has
   published a signing key must sign, and its peers reject an unsigned message from it).
+- **At-rest lock (optional)**: a passphrase/PIN or a passkey encrypts *everything* this device
+  stores — the `GroupKey`s, the bearer token, the device keypairs, every message record and every
+  cached file. The key is derived on unlock (PBKDF2-SHA256, 600k rounds, or the passkey's WebAuthn
+  PRF output) and never written anywhere: while locked, IndexedDB holds only ciphertext plus the
+  salt. There is no reset — the server never had the key — so a forgotten secret costs this
+  device's copy and nothing else.
+- **Recovery file (optional)**: an encrypted export of this device's identity and every `GroupKey`
+  epoch it holds, sealed under a generated 160-bit recovery code shown once. It is the only way
+  back into a space whose devices are all gone, and it restores *this* device rather than
+  enrolling a new one, so nothing has to be re-authorised by a device that no longer exists. The
+  device keypairs are therefore extractable: what that used to buy was narrower than it looks,
+  since the `GroupKey` beside them has to be extractable to be wrapped for other devices at all.
+  The at-rest lock is what actually closes that, across the whole store rather than one key.
 - **Attested device roster**: the device that adds another one scans its keys out-of-band, so it
   signs them — and every other device verifies that signature instead of believing the roster the
   server serves. The space creator self-signs, a joining device inherits the introducer's verified
@@ -71,6 +84,14 @@ same origin — one deploy, no CORS.
   which is a UX cost this project has not accepted.
 - **Replay/reorder and metadata** (sizes, timing, device count). A signature covers *what* was
   sent, not *when* or *in what order*. See `TODO.md`.
+- **A device with no lock set.** Without one, everything above is stored unencrypted on the
+  device, exactly as it was before the lock existed — anyone who can open that browser profile
+  reads it. Even with a lock, a message's id and timestamp stay in the clear locally, because they
+  are the key path and the sort index that keep history loadable; someone reading the raw database
+  learns *when* the device received something, never what.
+- **Anyone holding both a recovery file and its code.** That pair is full access to the space, by
+  construction. A file is also a snapshot: exported before a revocation, it opens history but
+  nothing sent after the key rotated (the app flags a stale one).
 
 ## Development
 

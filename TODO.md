@@ -14,7 +14,6 @@
 Biggest remaining items (need design decisions, don't do blindly):
 
 - **Real-time delivery (WebSocket/Durable Objects)** replacing the 8 s poll. 🟠🏗️
-- **At-rest lock (PIN/WebAuthn)** + **encrypted recovery export**. 🟠🏗️ See §7.
 - **Web Push**: new-message notifications with the app closed. 🟠🏗️
 
 ---
@@ -26,7 +25,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 2. Privacy
 
-- [ ] 🟠🏗️ **No client at-rest encryption.** IndexedDB stores messages, decrypted files, the `GroupKey` (as a `CryptoKey`) and the `deviceAuthToken` in clear. Anyone with device access (or an XSS) gets everything. Add an optional PIN/passphrase lock (derive a wrapping key with PBKDF2/Argon2) or WebAuthn/passkey to wrap the `GroupKey` at rest.
+- [ ] 🟡⚡ **The at-rest lock is opt-in and has no auto-lock.** It locks on launch and on demand, never on a timer or after inactivity. Worth revisiting once there is data on how people actually use it; a timeout that fires mid-upload would be worse than no timeout.
 - [ ] 🟡🏗️ **Server-observable metadata:** sizes (via `Content-Length` and metadata length), timing, device count. For sizes, consider padding the ciphertext to buckets. Explicitly document what the server sees.
 
 ## 3. Performance
@@ -41,7 +40,8 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 4. Best practices / tooling
 
-- [ ] 🟡🛠️ **No component tests** in the PWA (crypto, outbox and the Worker are covered). Add `@testing-library/preact` for key flows (composer, pairing, message rendering).
+- [ ] 🟡🛠️ **No component tests** in the PWA (crypto, the vault, at-rest storage, the outbox and the Worker are covered). Add `@testing-library/preact` for key flows (composer, pairing, lock screen, message rendering).
+- [ ] 🟡🛠️ **No tests for `db/store.ts` or `state/lock.ts`.** Both need a fake IndexedDB (`fake-indexeddb`); the crypto underneath them is covered, the wiring that turns a lock on and off is not.
 - [ ] 🟡⚡ **Confirm the committed `database_id`** in `wrangler.jsonc` (`05e8acfd-…`). The comment says "replace"; if it is the real prod id, fine (not secret), but document it to avoid confusion.
 - [ ] 🔵⚡ **`exactOptionalPropertyTypes: false`** in `tsconfig.base.json`. Enabling it hardens optional handling (may need minor adjustments).
 - [ ] 🔵⚡ `sha256Hex` duplicated (worker `auth.ts` / web `crypto.ts`): unavoidable due to different runtimes, noted for the record. The Worker's copy is now pinned to a known digest by `auth.test.ts`, so the two cannot drift silently.
@@ -70,9 +70,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 - [ ] 🟠🏗️ Real-time delivery (WebSocket/Durable Objects) replacing polling.
 - [ ] 🟠🏗️ **Web Push**: new-message notifications with the app closed (fits the async model perfectly).
-- [ ] 🟠🛠️ **At-rest lock** (PIN/passphrase/WebAuthn) wrapping the `GroupKey`.
-- [ ] 🟠🛠️ **Export/recover a space** (encrypted recovery code): today, if all devices are lost, the space is unrecoverable. With clear warnings.
-- [ ] 🟡🛠️ **Ownership transfer and recovery.** Add an explicit, confirmed hand-off to another admin before the owner leaves, then design a recovery path for a permanently lost owner (likely tied to the encrypted recovery export) without weakening membership security.
+- [ ] 🟡🛠️ **Ownership transfer.** Add an explicit, confirmed hand-off to another admin before the owner leaves. (Recovering a permanently lost owner is now covered by the recovery file, which restores that device's identity, role included.)
 - [ ] 🟡🛠️ **Multiple files in a single message** (today each file = a separate message).
 - [ ] 🟡🏗️ **Resumable/chunked uploads** and raise the 50 MB limit.
 - [ ] 🟡🛠️ **Self-destruct timers** per message.
