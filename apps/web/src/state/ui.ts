@@ -8,7 +8,7 @@ export const view = signal<View>("chat");
 export const composerDraft = signal<string>("");
 
 /** Connectivity hint shown in the header (best-effort). */
-export const online = signal(navigator.onLine);
+export const online = signal(typeof navigator === "undefined" ? true : navigator.onLine);
 
 export interface Toast {
   id: number;
