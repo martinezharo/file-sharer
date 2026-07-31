@@ -58,7 +58,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 - [ ] 🟡⚡ **No retry for failed text.** A `failed` outgoing message shows an alert icon but isn't tappable (files do have retry). Add tap-to-retry.
 - [ ] 🟡🛠️ **No image/video previews.** Everything renders as a generic file card. Render inline thumbnails/previews from the decrypted blob (`URL.createObjectURL`).
 - [ ] 🟡🛠️ **No real upload/download progress** for large files (spinner only). Show %.
-- [ ] 🟡🛠️ **No delete/clear history** or single-message delete for everyone (local delete exists). Add message management.
+- [ ] 🟡🛠️ **No "clear history".** Single-message delete now exists in both flavours (this device / all devices), but there is no way to wipe a whole conversation in one go. The tombstone pipeline is the mechanism; what it needs is a bounded batch form, since one tombstone per message does not scale to a year of history.
 - [ ] 🟡🛠️ **No date separators** in the chat (time only). Group by day.
 - [ ] 🔵⚡ **`Modal` has no full focus trap** (Escape + focus restore are done). Trap Tab within the dialog.
 - [ ] 🔵⚡ **Rename a device** after creation: doesn't exist.

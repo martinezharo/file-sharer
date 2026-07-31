@@ -29,8 +29,31 @@
 
 import type { DeviceAttestation, DeviceKeyBundle } from "@file-sharer/shared";
 import { attestationStatement } from "@file-sharer/shared";
+import { signal } from "@preact/signals";
 import { META_DEVICE_IDENTITIES, META_DEVICE_PINS, metaGet, metaSet } from "../db/store";
 import { importSigningPublicKey, signStatement, verifyStatement } from "./crypto";
+
+/**
+ * Every device id this one knows about, including itself.
+ *
+ * The reactive mirror of the store below, so the UI can answer "is there
+ * anybody else in this space?" without a request. That question decides whether
+ * actions which only make sense with peers are offered at all, and it has to be
+ * answerable offline and on first paint — a roster fetch that is slow or fails
+ * would otherwise make those actions flicker or disappear.
+ *
+ * Kept honest by `reconcileDevices`, which drops devices that left the space.
+ */
+export const knownDeviceIds = signal<readonly string[]>([]);
+
+function trackKnownDevices(identities: DeviceIdentities): void {
+  const next = Object.keys(identities).sort();
+  const current = knownDeviceIds.value;
+  // Refreshed on every sync pass; only publish a genuine change so subscribers
+  // are not re-rendered for an identical roster.
+  if (current.length === next.length && next.every((id, i) => current[i] === id)) return;
+  knownDeviceIds.value = next;
+}
 
 /** How a device's keys reached us, weakest last. */
 export type IdentityTrust = "scanned" | "inherited" | "attested" | "tofu";
@@ -75,7 +98,10 @@ function signingKey(spki: string): Promise<CryptoKey> {
  */
 export async function loadIdentities(): Promise<DeviceIdentities> {
   const stored = await metaGet<DeviceIdentities>(META_DEVICE_IDENTITIES);
-  if (stored) return stored;
+  if (stored) {
+    trackKnownDevices(stored);
+    return stored;
+  }
 
   const legacy = await metaGet<Record<string, string>>(META_DEVICE_PINS);
   if (!legacy) return {};
@@ -84,11 +110,15 @@ export async function loadIdentities(): Promise<DeviceIdentities> {
     upgraded[id] = { publicKey, trust: "tofu" };
   }
   await metaSet(META_DEVICE_IDENTITIES, upgraded);
+  trackKnownDevices(upgraded);
   return upgraded;
 }
 
 async function saveIdentities(identities: DeviceIdentities): Promise<void> {
   await metaSet(META_DEVICE_IDENTITIES, identities);
+  // Every mutation funnels through here, so this is the one place the reactive
+  // mirror can be kept in step with the store.
+  trackKnownDevices(identities);
 }
 
 /**

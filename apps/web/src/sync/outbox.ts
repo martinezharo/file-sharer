@@ -11,7 +11,12 @@
  * as "already sent".
  */
 
-import { type MessageSignatureFields, messageSignatureStatement } from "@file-sharer/shared";
+import {
+  type DeleteSignatureFields,
+  type MessageSignatureFields,
+  deleteSignatureStatement,
+  messageSignatureStatement,
+} from "@file-sharer/shared";
 import { ApiError, type Auth, NetworkError, api } from "../api/client";
 import {
   bufToBase64Url,
@@ -67,13 +72,18 @@ export interface FlushOptions {
 type NotifyUpdate = (message: LocalMessage) => void;
 
 /**
- * Signs a message with this device's identity, so the receiver can tell it
- * really came from here and not from a server rewriting the sender. The group
- * and sender are filled in by the flush, which is where they are known.
+ * Signs what this device sends, so the receiver can tell it really came from
+ * here and not from a server rewriting the sender. The group and sender are
+ * filled in by the flush, which is where they are known.
+ *
+ * Two statements, never one: a deletion is signed over its own statement so a
+ * signature can never be lifted from a message and replayed as an order to
+ * destroy one (see `deleteSignatureStatement`).
  */
-type Signer = (
-  fields: Omit<MessageSignatureFields, "groupId" | "senderDeviceId">,
-) => Promise<string>;
+interface Signer {
+  message(fields: Omit<MessageSignatureFields, "groupId" | "senderDeviceId">): Promise<string>;
+  deletion(fields: Omit<DeleteSignatureFields, "groupId" | "senderDeviceId">): Promise<string>;
+}
 
 function isFlushable(message: LocalMessage): boolean {
   // "uploading" is included so an upload interrupted by a crash/kill is
@@ -120,16 +130,20 @@ async function doFlush(
   // A session that predates sender authenticity has no signing key until the
   // page mints one (actions.ensureSigningIdentity). Sending unsigned in the
   // meantime is the whole reason the upgrade costs the user nothing.
+  const identity = { groupId: session.groupId, senderDeviceId: session.deviceId };
   const sign: Signer | undefined = signingKeyPair
-    ? (fields) =>
-        signStatement(
-          signingKeyPair.privateKey,
-          messageSignatureStatement({
-            ...fields,
-            groupId: session.groupId,
-            senderDeviceId: session.deviceId,
-          }),
-        )
+    ? {
+        message: (fields) =>
+          signStatement(
+            signingKeyPair.privateKey,
+            messageSignatureStatement({ ...fields, ...identity }),
+          ),
+        deletion: (fields) =>
+          signStatement(
+            signingKeyPair.privateKey,
+            deleteSignatureStatement({ ...fields, ...identity }),
+          ),
+      }
     : undefined;
 
   const queued = (await allMessages())
@@ -142,7 +156,9 @@ async function doFlush(
     if (!message || !isFlushable(message)) continue;
 
     try {
-      if (message.file) {
+      if (message.deletes) {
+        await sendQueuedDeletion(message, keyring, auth, sign, notify, options.signal);
+      } else if (message.file) {
         await sendQueuedFile(message, keyring, auth, sign, notify, options.signal);
       } else if (message.text !== undefined) {
         await sendQueuedText(message, keyring, auth, sign, notify, options.signal);
@@ -259,6 +275,50 @@ async function pinEpoch(
   return { epoch, key: currentKey(keyring) };
 }
 
+/**
+ * Deliver a "delete for everyone" order.
+ *
+ * It carries no ciphertext, but it still pins and sends the key epoch like any
+ * other message: the server only accepts the current one, so a deletion queued
+ * before a rotation is re-queued through the same `key_rotated` path instead of
+ * being silently accepted under a superseded key.
+ */
+async function sendQueuedDeletion(
+  message: LocalMessage,
+  keyring: Keyring,
+  auth: Auth,
+  sign: Signer | undefined,
+  notify?: NotifyUpdate,
+  signal?: AbortSignal,
+): Promise<void> {
+  signal?.throwIfAborted();
+  const deletesMessageId = message.deletes!;
+  const { epoch } = await pinEpoch(message, keyring, notify);
+  try {
+    await api.sendMessage(
+      {
+        id: message.id,
+        keyEpoch: epoch,
+        deletesMessageId,
+        ...(sign
+          ? {
+              signature: await sign.deletion({
+                messageId: message.id,
+                keyEpoch: epoch,
+                deletesMessageId,
+              }),
+            }
+          : {}),
+      },
+      auth,
+      signal,
+    );
+  } catch (error) {
+    if (!isAlreadySent(error)) throw error;
+  }
+  await update({ ...message, keyEpoch: epoch, status: "sent" }, notify);
+}
+
 async function sendQueuedText(
   message: LocalMessage,
   keyring: Keyring,
@@ -284,7 +344,7 @@ async function sendQueuedText(
         keyEpoch: epoch,
         encryptedPayload: encrypted.ciphertext,
         iv: encrypted.iv,
-        ...(sign ? { signature: await sign(signed) } : {}),
+        ...(sign ? { signature: await sign.message(signed) } : {}),
       },
       auth,
       signal,
@@ -346,7 +406,7 @@ async function sendQueuedFile(
         fileIv: encrypted.iv,
         fileMeta: meta.ciphertext,
         fileMetaIv: meta.iv,
-        ...(sign ? { signature: await sign(signed) } : {}),
+        ...(sign ? { signature: await sign.message(signed) } : {}),
       },
       auth,
       signal,

@@ -92,6 +92,28 @@ export async function deleteMessageById(env: Env, id: string): Promise<boolean> 
   return true;
 }
 
+/**
+ * Delete one message (and its R2 object) belonging to `groupId`. Returns true
+ * if it existed.
+ *
+ * Group-scoped on purpose: unlike `deleteMessageById`, whose callers have
+ * already established ownership, this one acts directly on an id chosen by a
+ * client (the target of a "delete for everyone"), so the group has to be part
+ * of the match or a device could delete another space's message by guessing an
+ * id. A miss is not an error — the target being gone already is the normal
+ * case, since a fully delivered message is purged from here immediately.
+ */
+export async function deleteGroupMessage(env: Env, groupId: string, id: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT id, group_id AS groupId, file_r2_key AS fileKey FROM messages WHERE id = ? AND group_id = ?",
+  )
+    .bind(id, groupId)
+    .first<{ id: string; groupId: string; fileKey: string | null }>();
+  if (!row) return false;
+  await deleteMessages(env, [row]);
+  return true;
+}
+
 /** Delete messages (and files) older than `olderThan` epoch ms across all groups. */
 export async function purgeExpiredMessages(env: Env, olderThan: number): Promise<void> {
   const rows = await env.DB.prepare(

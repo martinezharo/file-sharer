@@ -6,7 +6,7 @@ import type {
   SendMessageResponse,
 } from "@file-sharer/shared";
 import { authenticate } from "../auth";
-import { activeDeviceIds, deleteMessageById, fileStorageKey } from "../db";
+import { activeDeviceIds, deleteGroupMessage, deleteMessageById, fileStorageKey } from "../db";
 import { ApiError, json } from "../errors";
 import { optionalString, readJson, requireId, requireInt } from "../http";
 import { notifySpace } from "../realtime";
@@ -30,6 +30,10 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   const fileMeta = optionalString(body.fileMeta, "fileMeta", 8192);
   const fileMetaIv = optionalString(body.fileMetaIv, "fileMetaIv", 128);
   const signature = optionalString(body.signature, "signature", 512);
+  const deletesMessageId =
+    body.deletesMessageId === undefined
+      ? undefined
+      : requireId(body.deletesMessageId, "deletesMessageId");
 
   // A device whose peers hold a signing key for it must sign, or they would
   // reject the message as a downgrade. Catching it here turns a client bug into
@@ -38,7 +42,17 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     throw new ApiError("bad_request", "This device must sign its messages");
   }
 
-  if (!encryptedPayload && !fileR2Key) {
+  // A tombstone is a message whose entire content is "forget that other one",
+  // so it carries no payload. Refusing the mixed form keeps the two kinds
+  // unambiguous: a receiver never has to decide whether to render *and* delete,
+  // and the signature covering it is unambiguously the delete statement.
+  if (deletesMessageId && (encryptedPayload || fileR2Key)) {
+    throw new ApiError("bad_request", "A deletion cannot carry text or a file");
+  }
+  if (deletesMessageId === id) {
+    throw new ApiError("bad_request", "A deletion cannot target itself");
+  }
+  if (!encryptedPayload && !fileR2Key && !deletesMessageId) {
     throw new ApiError("bad_request", "Message must contain text and/or a file");
   }
   if (encryptedPayload && !iv) {
@@ -73,6 +87,19 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     );
   }
 
+  // Destroy the target now, before anything else can go wrong with this
+  // request. Done ahead of the no-recipients short-circuit below because it is
+  // worth doing even when nobody is left to notify: the user asked for this
+  // content to be gone, and content the server still holds is the one copy it
+  // can actually guarantee.
+  //
+  // A miss is expected, not an error: a message every device already
+  // acknowledged was purged from here the moment it was delivered, which is
+  // precisely when the tombstone still has work to do on the devices.
+  if (deletesMessageId) {
+    await deleteGroupMessage(c.env, auth.groupId, deletesMessageId);
+  }
+
   // Recipients are every active device except the sender.
   const recipients = (await activeDeviceIds(c.env, auth.groupId)).filter(
     (d) => d !== auth.deviceId,
@@ -98,8 +125,9 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     c.env.DB.prepare(
       `INSERT INTO messages
          (id, group_id, sender_device_id, encrypted_payload, iv,
-          file_r2_key, file_iv, file_meta, file_meta_iv, key_epoch, signature, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          file_r2_key, file_iv, file_meta, file_meta_iv, key_epoch, signature,
+          deletes_message_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id,
       auth.groupId,
@@ -112,6 +140,7 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
       fileMetaIv ?? null,
       keyEpoch,
       signature ?? null,
+      deletesMessageId ?? null,
       now,
     ),
     ...recipients.map((deviceId) =>
@@ -164,6 +193,7 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
             m.file_iv AS fileIv,
             m.file_meta AS fileMeta,
             m.file_meta_iv AS fileMetaIv,
+            m.deletes_message_id AS deletesMessageId,
             m.signature AS signature,
             m.created_at AS createdAt
        FROM messages m

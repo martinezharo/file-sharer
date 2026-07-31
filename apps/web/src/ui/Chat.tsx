@@ -29,7 +29,7 @@ import {
 } from "../actions";
 import { getFile } from "../db/store";
 import { getClipboardImages } from "../share/transfer";
-import { messages } from "../state/messages";
+import { visibleMessages } from "../state/messages";
 import { session } from "../state/session";
 import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
@@ -79,7 +79,7 @@ function countIncomingDownloads(list: LocalMessage[]): number {
 }
 
 export function Chat(): JSX.Element {
-  const list = messages.value;
+  const list = visibleMessages.value;
   const downloading = countIncomingDownloads(list);
   const currentSession = session.value;
   const myId = currentSession?.deviceId;

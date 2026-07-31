@@ -1,11 +1,26 @@
-import { signal } from "@preact/signals";
-import { allMessages, deleteMessage, putMessage } from "../db/store";
+import { computed, signal } from "@preact/signals";
+import { recordDeletion } from "../db/deletions";
+import { allMessages, deleteFile, deleteMessage, getMessage, putMessage } from "../db/store";
 import type { LocalMessage } from "../types";
 
 export const messages = signal<LocalMessage[]>([]);
 
+/**
+ * What the chat renders. Outgoing tombstones ("delete for everyone") live in
+ * the same store so the outbox delivers them like any other send, but they are
+ * bookkeeping, not content.
+ */
+export const visibleMessages = computed(() => messages.value.filter((m) => !m.deletes));
+
 export async function loadMessages(): Promise<void> {
-  messages.value = await allMessages();
+  const stored = await allMessages();
+  // A tombstone only exists to be delivered. Once the server has it, delivery
+  // to every device is its job, so the local row is dead weight — dropped here
+  // rather than at send time because the send also runs in the service worker,
+  // which has no way to tell the page a row disappeared.
+  const spent = stored.filter((m) => m.deletes && m.status === "sent");
+  await Promise.all(spent.map((m) => deleteMessage(m.id)));
+  messages.value = spent.length === 0 ? stored : stored.filter((m) => !spent.includes(m));
 }
 
 /** Insert `message` into an array already sorted by `createdAt`, ascending. */
@@ -55,4 +70,32 @@ export async function removeMessage(id: string): Promise<void> {
 
 export function getLocalMessage(id: string): LocalMessage | undefined {
   return messages.value.find((m) => m.id === id);
+}
+
+/**
+ * Erase every trace of a message from this device: the history row, the
+ * reactive signal and the cached blob of its attachment.
+ *
+ * Shared by both ways a message can disappear — the user deleting it here, and
+ * a tombstone arriving from another device — so neither can drift into
+ * forgetting the file blob and leaving the actual content on disk.
+ */
+export async function discardMessage(message: LocalMessage): Promise<void> {
+  await removeMessage(message.id);
+  if (message.file) {
+    await deleteFile(message.file.r2Key).catch(() => {
+      /* cached blob cleanup is best-effort */
+    });
+  }
+}
+
+/**
+ * Apply a deletion that must hold everywhere: drop the message if we still have
+ * it, and remember the id either way so a copy still in flight is dropped when
+ * it lands (see db/deletions.ts).
+ */
+export async function applyGlobalDeletion(id: string): Promise<void> {
+  await recordDeletion(id);
+  const local = getLocalMessage(id) ?? (await getMessage(id));
+  if (local) await discardMessage(local);
 }

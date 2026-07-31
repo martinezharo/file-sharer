@@ -361,3 +361,140 @@ describe("POST /api/messages/:id/ack", () => {
     expect((await ack(owner, "no-such-message")).status).toBe(404);
   });
 });
+
+describe("POST /api/messages (delete for everyone)", () => {
+  it("destroys the target message and its file, and fans the tombstone out", async () => {
+    const { groupId, owner } = await seedSpace();
+    const peer = await seedDevice(groupId);
+    const key = uid("blob");
+    await env.FILES.put(fileStorageKey(groupId, key), "ciphertext");
+    const target = await seedMessage(groupId, owner.id, {
+      recipients: [peer.id],
+      fileR2Key: key,
+    });
+    const tombstoneId = uid("msg");
+
+    const response = await send(owner, {
+      id: tombstoneId,
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: target,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(target).first()).toBe(
+      null,
+    );
+    expect(await env.FILES.head(fileStorageKey(groupId, key))).toBeNull();
+    // The target's delivery bookkeeping goes with it, and the tombstone gets
+    // its own so every other device is told.
+    const rows = await env.DB.prepare(
+      "SELECT message_id AS messageId, device_id AS deviceId FROM delivery_status WHERE message_id IN (?, ?)",
+    )
+      .bind(target, tombstoneId)
+      .all<{ messageId: string; deviceId: string }>();
+    expect(rows.results).toEqual([{ messageId: tombstoneId, deviceId: peer.id }]);
+  });
+
+  it("still delivers a deletion whose target is already gone", async () => {
+    // The normal case: a message every device downloaded was purged from here
+    // on the last ack, and the copies that remain live on those devices.
+    const { groupId, owner } = await seedSpace();
+    const peer = await seedDevice(groupId);
+    const tombstoneId = uid("msg");
+
+    const response = await send(owner, {
+      id: tombstoneId,
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: uid("long-gone"),
+    });
+
+    expect(response.status).toBe(200);
+    const delivered = await pending(peer);
+    expect(delivered.messages.map((m) => m.id)).toContain(tombstoneId);
+  });
+
+  it("hands the recipient the id to delete", async () => {
+    const { groupId, owner } = await seedSpace();
+    const peer = await seedDevice(groupId);
+    const target = uid("target");
+
+    await send(owner, {
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: target,
+      signature: "sig",
+    });
+
+    const delivered = await pending(peer);
+    const tombstone = delivered.messages.find((m) => m.deletesMessageId !== null);
+    expect(tombstone?.deletesMessageId).toBe(target);
+    expect(tombstone?.encryptedPayload).toBeNull();
+    expect(tombstone?.signature).toBe("sig");
+  });
+
+  it("never deletes a message belonging to another space", async () => {
+    const { groupId: otherGroupId, owner: stranger } = await seedSpace();
+    const victim = await seedMessage(otherGroupId, stranger.id, {
+      recipients: [stranger.id],
+    });
+    const { groupId, owner } = await seedSpace();
+    await seedDevice(groupId);
+
+    const response = await send(owner, {
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: victim,
+    });
+
+    // Accepted (the id simply doesn't resolve for this caller) but the other
+    // space's message is untouched.
+    expect(response.status).toBe(200);
+    expect(
+      await env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(victim).first(),
+    ).not.toBe(null);
+  });
+
+  it("rejects a deletion that also carries content", async () => {
+    const { groupId, owner } = await seedSpace();
+    await seedDevice(groupId);
+
+    const response = await send(owner, { deletesMessageId: uid("target") });
+
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe("bad_request");
+  });
+
+  it("rejects a deletion that targets itself", async () => {
+    const { groupId, owner } = await seedSpace();
+    await seedDevice(groupId);
+    const id = uid("msg");
+
+    const response = await send(owner, {
+      id,
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: id,
+    });
+
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe("bad_request");
+  });
+
+  it("still destroys the target when no device is left to notify", async () => {
+    const { groupId, owner } = await seedSpace();
+    const target = await seedMessage(groupId, owner.id);
+
+    const response = await send(owner, {
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: target,
+    });
+
+    expect(response.status).toBe(200);
+    expect(await env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(target).first()).toBe(
+      null,
+    );
+  });
+});
