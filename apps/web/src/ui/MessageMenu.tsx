@@ -1,9 +1,16 @@
-import { Copy, Share2, Trash2 } from "lucide-preact";
+import { Copy, Share2, Trash2, Users } from "lucide-preact";
 import type { ComponentChildren, JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { canShareMessage, copyMessageText, deleteMessageLocally, shareMessage } from "../actions";
+import {
+  canDeleteEverywhere,
+  canShareMessage,
+  copyMessageText,
+  deleteMessageEverywhere,
+  deleteMessageLocally,
+  shareMessage,
+} from "../actions";
 import type { LocalMessage } from "../types";
-import { cx } from "./components";
+import { Button, Modal, cx } from "./components";
 
 /** Viewport point the menu opens from (trigger button, long-press or right-click). */
 export interface MenuAnchor {
@@ -42,6 +49,12 @@ export function MessageMenu({
   const panelRef = useRef<HTMLDivElement>(null);
   const openedAt = useRef(performance.now());
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  // Deleting everywhere is the one action here that cannot be undone and that
+  // reaches beyond this device, so it is confirmed. The confirmation replaces
+  // the menu rather than opening on top of it: the menu's backdrop sits above
+  // the dialog layer, and dismissing the menu first would take the dialog with
+  // it.
+  const [confirmingGlobalDelete, setConfirmingGlobalDelete] = useState(false);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -70,6 +83,32 @@ export function MessageMenu({
   function run(action: (message: LocalMessage) => Promise<void>): void {
     onClose();
     void action(message);
+  }
+
+  if (confirmingGlobalDelete) {
+    return (
+      <Modal title="Delete on all devices?" onClose={onClose}>
+        <div class="px-5 pb-5 pt-1 text-sm leading-relaxed text-muted">
+          <p>
+            This message will be removed from every device linked to this space, including the ones
+            that are offline right now — they&apos;ll delete it as soon as they reconnect.
+          </p>
+          <p class="mt-3">
+            {message.file
+              ? "A device that already saved this file elsewhere keeps that copy. This can't be undone."
+              : "This can't be undone."}
+          </p>
+          <div class="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button class="sm:w-auto" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button class="sm:w-auto" variant="danger" onClick={() => run(deleteMessageEverywhere)}>
+              Delete everywhere
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
   }
 
   return (
@@ -119,6 +158,14 @@ export function MessageMenu({
         <MenuItem danger icon={<Trash2 />} onClick={() => run(deleteMessageLocally)}>
           Delete on this device
         </MenuItem>
+        {/* Hidden entirely when no other device can be holding a copy — an
+            entry that would do nothing beyond the one above it is worse than
+            no entry at all. See `canDeleteEverywhere`. */}
+        {canDeleteEverywhere(message) && (
+          <MenuItem danger icon={<Users />} onClick={() => setConfirmingGlobalDelete(true)}>
+            Delete on all devices
+          </MenuItem>
+        )}
       </div>
     </div>
   );

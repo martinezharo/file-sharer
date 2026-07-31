@@ -1,7 +1,7 @@
 import { AlertTriangle, LockKeyhole, LogOut, MessagesSquare, MonitorSmartphone } from "lucide-preact";
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
-import { logout, resumeAfterUnlock } from "../actions";
+import { logout, startSession } from "../actions";
 import { lockConfigured, lockNow, locked } from "../state/lock";
 import { ready, session, sessionRevoked } from "../state/session";
 import { online, view, type View } from "../state/ui";
@@ -42,7 +42,7 @@ function CurrentView(): JSX.Element {
   // A locked device has nothing loaded to show: the session and every stored
   // message are ciphertext until the secret arrives.
   if (locked.value) {
-    return <LockScreen onUnlocked={() => void resumeAfterUnlock()} />;
+    return <LockScreen onUnlocked={() => void startSession()} />;
   }
 
   if (!session.value) {

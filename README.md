@@ -83,6 +83,22 @@ Polling does not go away, it slows down (8 s → 60 s while connected). The sock
 optimisation, never the delivery guarantee: a dropped notification, a frozen tab or a proxy that
 killed the connection without a close frame costs a few seconds, never a message.
 
+### Deleting for everyone
+
+A message can be deleted from every device in the space, not just the one in front of you. Since
+the server drops a message as soon as every device has downloaded it, the copies that usually
+remain are the local ones — so a deletion is not an API call against stored content, it is a
+signed *tombstone* delivered through the ordinary message pipeline. It therefore reaches devices
+that are offline when you press the button, exactly like a message does, and the outbox retries it
+until it lands.
+
+Two things fall out of that. The server destroys the target's row and its R2 object the moment the
+tombstone arrives, so a message deleted before a device ever fetched it is never delivered at all.
+And the tombstone is signed over its own statement (`deleteSignatureStatement`), never the message
+one, so no signature can be lifted from a message and replayed as an order to erase one; a
+deletion whose signature fails against the key we hold for that device is ignored, and the user is
+told.
+
 ### What this does *not* protect against
 
 - **The past.** Rotation is forward-only: a revoked device keeps the epochs it already held,
@@ -103,6 +119,10 @@ killed the connection without a close frame costs a few seconds, never a message
   reads it. Even with a lock, a message's id and timestamp stay in the clear locally, because they
   are the key path and the sort index that keep history loadable; someone reading the raw database
   learns *when* the device received something, never what.
+- **A device that does not want to forget.** "Delete on all devices" is cooperative, like every
+  such feature: it asks the other devices to drop their copy and they do, but a file already saved
+  somewhere else, a device that never reconnects, or a modified client that ignores the tombstone
+  keeps what it has. It removes content from your own devices; it is not a remote wipe.
 - **Anyone holding both a recovery file and its code.** That pair is full access to the space, by
   construction. A file is also a snapshot: exported before a revocation, it opens history but
   nothing sent after the key rotated (the app flags a stale one).

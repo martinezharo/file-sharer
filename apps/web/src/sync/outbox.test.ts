@@ -69,7 +69,7 @@ vi.mock("../api/client", () => {
   };
 });
 
-import { messageSignatureStatement } from "@file-sharer/shared";
+import { deleteSignatureStatement, messageSignatureStatement } from "@file-sharer/shared";
 import { flushQueuedOutbox } from "./outbox";
 
 function queuedFile(id: string, createdAt: number): LocalMessage {
@@ -197,5 +197,73 @@ describe("outbox batch handoff", () => {
     expect(state.sendMessage).not.toHaveBeenCalled();
     expect(state.messages.get(messages[0]!.id)?.status).toBe("queued");
     expect(state.messages.get(messages[1]!.id)?.status).toBe("queued");
+  });
+});
+
+describe("outbox deletions", () => {
+  beforeEach(() => {
+    state.messages.clear();
+    state.files.clear();
+    state.uploadFile.mockReset().mockResolvedValue(undefined);
+    state.sendMessage.mockReset().mockResolvedValue(undefined);
+  });
+
+  function queueDeletion(id: string, deletes: string): LocalMessage {
+    const message: LocalMessage = {
+      id,
+      direction: "out",
+      senderDeviceId: "device",
+      deletes,
+      createdAt: 0,
+      status: "queued",
+    };
+    state.messages.set(id, message);
+    return message;
+  }
+
+  it("sends a tombstone with no payload, signed over the delete statement", async () => {
+    queueDeletion("tombstone-1", "target-1");
+
+    const result = await flushQueuedOutbox();
+
+    expect(result).toEqual({ sent: 1, failed: 0, remaining: 0 });
+    const body = state.sendMessage.mock.calls[0]![0] as Record<string, unknown>;
+    expect(body).not.toHaveProperty("encryptedPayload");
+    expect(body).not.toHaveProperty("fileR2Key");
+    expect(body.deletesMessageId).toBe("target-1");
+    // A distinct statement, so a signature captured from an ordinary message
+    // can never be replayed as an order to destroy one.
+    expect(body.signature).toBe(
+      `signed(${deleteSignatureStatement({
+        groupId: "group",
+        messageId: "tombstone-1",
+        senderDeviceId: "device",
+        keyEpoch: 3,
+        deletesMessageId: "target-1",
+      })})`,
+    );
+    expect(state.messages.get("tombstone-1")?.status).toBe("sent");
+  });
+
+  it("keeps a deletion queued when the network is down, so it lands later", async () => {
+    queueDeletion("tombstone-2", "target-2");
+    const { NetworkError } = await import("../api/client");
+    state.sendMessage.mockRejectedValue(new NetworkError("offline"));
+
+    const result = await flushQueuedOutbox();
+
+    expect(result).toEqual({ sent: 0, failed: 0, remaining: 1 });
+    expect(state.messages.get("tombstone-2")?.status).toBe("queued");
+  });
+
+  it("treats an already-registered deletion as delivered", async () => {
+    queueDeletion("tombstone-3", "target-3");
+    const { ApiError } = await import("../api/client");
+    state.sendMessage.mockRejectedValue(new ApiError(409, "conflict", "Message id already exists"));
+
+    const result = await flushQueuedOutbox();
+
+    expect(result).toEqual({ sent: 1, failed: 0, remaining: 0 });
+    expect(state.messages.get("tombstone-3")?.status).toBe("sent");
   });
 });

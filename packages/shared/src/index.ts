@@ -183,6 +183,40 @@ export function attestationStatement(fields: Omit<DeviceAttestation, "signature"
   ].join(":");
 }
 
+/** The parts of a global-delete request a sender signs. */
+export interface DeleteSignatureFields {
+  groupId: string;
+  /** Id of the tombstone itself (it is a message like any other). */
+  messageId: string;
+  senderDeviceId: string;
+  keyEpoch: number;
+  /** The message this tombstone orders every device to forget. */
+  deletesMessageId: string;
+}
+
+/**
+ * Statement signed by the device that asks every other device to delete a
+ * message.
+ *
+ * Deliberately a *different* statement from `messageSignatureStatement` rather
+ * than an extra field on it: adding a part there would change the bytes every
+ * normal message is signed over, so devices running an older build would start
+ * reporting perfectly good messages as `invalid`. Two prefixes that cannot
+ * collide also mean a signature harvested from one kind can never be replayed
+ * as the other — which matters more here than anywhere else, since this is the
+ * one statement whose effect is destructive.
+ */
+export function deleteSignatureStatement(fields: DeleteSignatureFields): string {
+  return [
+    "fs-message-delete:1",
+    fields.groupId,
+    fields.messageId,
+    fields.senderDeviceId,
+    String(fields.keyEpoch),
+    fields.deletesMessageId,
+  ].join(":");
+}
+
 /** The parts of a message a sender signs: who sent it, under which key, and every ciphertext in it. */
 export interface MessageSignatureFields {
   groupId: string;
@@ -375,6 +409,20 @@ export interface SendMessageRequest {
   /** base64url IV for the file metadata payload. */
   fileMetaIv?: string;
   /**
+   * Id of a message this one orders every device to delete ("delete for
+   * everyone"). Mutually exclusive with the payload fields: a tombstone carries
+   * no content of its own.
+   *
+   * It travels in the clear, unlike everything else. That leaks nothing new —
+   * message ids are already primary keys in the server's database — and it buys
+   * the server the ability to drop the target's row and its R2 object right
+   * away, so a message deleted before a device came online is never delivered
+   * at all rather than delivered and then retracted.
+   *
+   * Signed with `deleteSignatureStatement`, not `messageSignatureStatement`.
+   */
+  deletesMessageId?: string;
+  /**
    * ECDSA signature (base64url) over `messageSignatureStatement(...)`, proving
    * this message really comes from `senderDeviceId`. Optional on the wire only
    * for devices that have not published a signing key; the server rejects an
@@ -403,6 +451,11 @@ export interface PendingMessage {
   fileIv: string | null;
   fileMeta: string | null;
   fileMetaIv: string | null;
+  /**
+   * Set when this is a tombstone: the id of the message to delete locally. The
+   * receiving device applies it and acks; nothing is ever rendered for it.
+   */
+  deletesMessageId: string | null;
   createdAt: number;
   /** The sender's signature over this message, or null if it never published a signing key. */
   signature: string | null;

@@ -2,6 +2,7 @@ import {
   POLL_INTERVAL_MS,
   type PendingMessage,
   REALTIME_POLL_INTERVAL_MS,
+  deleteSignatureStatement,
   messageSignatureStatement,
 } from "@file-sharer/shared";
 import { ApiError, type Auth, api } from "../api/client";
@@ -13,8 +14,14 @@ import {
   verifyDeviceSignature,
 } from "../crypto/identity";
 import { type Keyring, keyForEpoch } from "../crypto/keyring";
+import { loadDeletions } from "../db/deletions";
 import { putFile } from "../db/store";
-import { applyMessageUpdate, getLocalMessage, upsertMessage } from "../state/messages";
+import {
+  applyGlobalDeletion,
+  applyMessageUpdate,
+  getLocalMessage,
+  upsertMessage,
+} from "../state/messages";
 import {
   applyKeyring,
   authHeaders,
@@ -181,10 +188,24 @@ export async function syncNow(): Promise<void> {
     // all bubbles appear at once, then fetch the attachments concurrently
     // instead of one after another.
     const identities = await senderIdentities(pending, currentSession.groupId, auth);
+    // What has already been deleted for everyone, so a copy that was in flight
+    // when the deletion happened is dropped instead of reappearing.
+    const deletions = await loadDeletions();
 
     const registered: LocalMessage[] = [];
     for (const pendingMessage of pending) {
       try {
+        if (pendingMessage.deletesMessageId) {
+          await applyIncomingDeletion(pendingMessage, identities, currentSession.groupId, auth);
+          continue;
+        }
+        if (deletions[pendingMessage.id]) {
+          // Deleted here while this copy was still on its way. Ack it so the
+          // server stops offering it (and drops it) rather than re-downloading
+          // content the user has already destroyed.
+          await api.ackMessage(pendingMessage.id, auth);
+          continue;
+        }
         registered.push(
           await registerIncoming(pendingMessage, ring, identities, currentSession.groupId),
         );
@@ -312,6 +333,54 @@ async function runWithConcurrency<T>(
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+/** A forged deletion is worth saying out loud, but only once per session. */
+let forgedDeletionReported = false;
+
+/**
+ * Apply another device's "delete for everyone".
+ *
+ * The signature is checked *before* anything is destroyed, and against the
+ * delete-specific statement, so neither the server nor anyone holding a
+ * captured message signature can order history erased. `unverified` is still
+ * accepted — it means we hold no signing key for that device at all, exactly
+ * the case where its ordinary messages are accepted too — but `invalid` (we
+ * hold its key and the signature does not match) is refused outright.
+ *
+ * Acked either way: the verdict is a pure function of bytes that never change,
+ * so leaving it pending would re-run the same decision on every poll for a day.
+ */
+async function applyIncomingDeletion(
+  pendingMessage: PendingMessage,
+  identities: DeviceIdentities,
+  groupId: string,
+  auth: Auth,
+): Promise<void> {
+  const deletesMessageId = pendingMessage.deletesMessageId!;
+  const verdict = await verifyDeviceSignature(
+    identities,
+    pendingMessage.senderDeviceId,
+    deleteSignatureStatement({
+      groupId,
+      messageId: pendingMessage.id,
+      senderDeviceId: pendingMessage.senderDeviceId,
+      keyEpoch: pendingMessage.keyEpoch,
+      deletesMessageId,
+    }),
+    pendingMessage.signature,
+  );
+
+  if (verdict === "invalid") {
+    if (!forgedDeletionReported) {
+      forgedDeletionReported = true;
+      showToast("Ignored a delete request that wasn't signed by one of your devices", "error");
+    }
+  } else {
+    await applyGlobalDeletion(deletesMessageId);
+  }
+
+  await api.ackMessage(pendingMessage.id, auth);
 }
 
 /**

@@ -70,6 +70,8 @@ export const META_DEVICE_IDENTITIES = "deviceIdentities";
 export const META_VAULT = "vault";
 /** Key epoch the last recovery file was exported at, so a stale one can be flagged. */
 export const META_RECOVERY_EPOCH = "recoveryExportEpoch";
+/** Ids deleted for everyone, so a late copy is dropped instead of reappearing (db/deletions.ts). */
+export const META_DELETED_MESSAGES = "deletedMessages";
 
 let dbPromise: Promise<IDBPDatabase<FileSharerDB>> | null = null;
 

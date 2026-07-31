@@ -27,6 +27,8 @@ import {
 import {
   createAttestation,
   identityBundles,
+  knownDeviceIds,
+  loadIdentities,
   pinScannedDevice,
   reconcileDevices,
   seedInheritedIdentities,
@@ -35,14 +37,19 @@ import { createKeyring, currentKey, keyForEpoch } from "./crypto/keyring";
 import {
   META_SIGNING_KEYPAIR,
   META_SIGNING_KEY_PUBLISHED,
-  deleteFile,
   getFile,
   metaDelete,
   metaGet,
   metaSet,
   putOutgoingFileMessages,
 } from "./db/store";
-import { applyMessageUpdate, loadMessages, removeMessage, upsertMessage } from "./state/messages";
+import {
+  applyGlobalDeletion,
+  applyMessageUpdate,
+  discardMessage,
+  loadMessages,
+  upsertMessage,
+} from "./state/messages";
 import { forgetLock } from "./state/lock";
 import {
   applyKeyring,
@@ -679,13 +686,69 @@ export async function deleteMessageLocally(message: LocalMessage): Promise<void>
       return;
     }
   }
-  await removeMessage(message.id);
-  if (message.file) {
-    await deleteFile(message.file.r2Key).catch(() => {
-      /* cached blob cleanup is best-effort */
-    });
-  }
+  await discardMessage(message);
   showToast("Deleted on this device");
+}
+
+/**
+ * Whether "delete for everyone" would actually do anything for this message.
+ *
+ * It is offered only when some *other* device can be holding a copy, which
+ * rules out two cases where the global delete would be a more frightening name
+ * for what the local one already does:
+ *
+ *  - a space with no other device linked, so there is nobody to tell;
+ *  - an outgoing message that never left this device (still queued, or failed),
+ *    so no copy of it exists anywhere else.
+ *
+ * Note that "the server no longer stores it" is deliberately *not* a reason to
+ * hide it: the server drops a message as soon as every device has downloaded
+ * it, which is precisely when the only copies left are the ones on those
+ * devices — the copies this action exists to remove.
+ */
+export function canDeleteEverywhere(message: LocalMessage): boolean {
+  const currentSession = session.value;
+  if (!currentSession) return false;
+  if (message.deletes) return false;
+  const peers = knownDeviceIds.value.filter((id) => id !== currentSession.deviceId);
+  if (peers.length === 0) return false;
+  return message.direction === "in" || message.status === "sent";
+}
+
+/**
+ * Delete a message from every device in the space.
+ *
+ * The local copy goes immediately and a tombstone is queued for the others.
+ * Queued rather than sent inline on purpose: it then inherits the outbox's
+ * retries, its Web Lock and Background Sync, so a deletion asked for on a train
+ * still lands when the connection comes back, and the app being closed in the
+ * meantime does not lose it.
+ *
+ * The order matters. The id is recorded as deleted (inside `applyGlobalDeletion`)
+ * *before* anything is sent, so a copy of the message that is still in flight is
+ * dropped when it arrives instead of quietly reappearing in the history the user
+ * just cleared.
+ */
+export async function deleteMessageEverywhere(message: LocalMessage): Promise<void> {
+  const currentSession = session.value;
+  if (!currentSession || !canDeleteEverywhere(message)) return;
+
+  await applyGlobalDeletion(message.id);
+  await upsertMessage({
+    id: randomId(),
+    direction: "out",
+    senderDeviceId: currentSession.deviceId,
+    deletes: message.id,
+    createdAt: Date.now(),
+    status: "queued",
+  });
+  scheduleOutboxFlush();
+
+  showToast(
+    navigator.onLine
+      ? "Deleting on all your devices"
+      : "Deleted here — your other devices will follow when you're back online",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -705,12 +768,21 @@ export async function logout(): Promise<void> {
 }
 
 /**
- * Bring the app up after a successful unlock. Same work `bootstrap()` does for
- * an unlocked device — a locked one simply could not do it any earlier, because
- * until the secret arrived there was no session and no readable history.
+ * Bring the app up for a device that has a session: load history, start
+ * syncing, make sure this device has a signing identity.
+ *
+ * Called both from `bootstrap()` and after a successful unlock — a locked
+ * device simply could not do any of it earlier, because until the secret
+ * arrived there was no session and no readable history. Kept as one function so
+ * the two paths cannot drift into starting the app up differently.
  */
-export async function resumeAfterUnlock(): Promise<void> {
+export async function startSession(): Promise<void> {
   await loadMessages();
+  // Populate the local view of the space's devices before anything asks how
+  // many there are. It reads from IndexedDB, so unlike the roster endpoint it
+  // answers offline too — which is exactly when a device is most likely to be
+  // queueing actions that depend on having peers.
+  await loadIdentities();
   startSync();
   void ensureSigningIdentity();
 }

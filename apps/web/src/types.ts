@@ -46,6 +46,14 @@ export interface LocalMessage {
    * when the server reports the key rotated underneath us.
    */
   keyEpoch?: number;
+  /**
+   * Id of the message this one deletes everywhere. Set only on outgoing
+   * tombstones, which live in the message store purely so the outbox delivers
+   * them with the same retries, background sync and offline guarantees as
+   * anything else the user sends. They are never rendered — see
+   * `visibleMessages` in state/messages.ts.
+   */
+  deletes?: string;
   /** Outgoing delivery status (incoming messages are always "sent"). */
   status: MessageStatus;
   fileState?: FileState;
