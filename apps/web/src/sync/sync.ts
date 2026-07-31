@@ -1,6 +1,7 @@
 import {
   POLL_INTERVAL_MS,
   type PendingMessage,
+  REALTIME_POLL_INTERVAL_MS,
   messageSignatureStatement,
 } from "@file-sharer/shared";
 import { ApiError, type Auth, api } from "../api/client";
@@ -26,6 +27,7 @@ import { showToast } from "../state/ui";
 import type { FileRef, LocalMessage } from "../types";
 import { requestBackgroundSync, requestImmediateWorkerFlush } from "./background";
 import { type OutboxUpdateBroadcast, flushQueuedOutbox } from "./outbox";
+import { ensureRealtime, realtimeConnected, startRealtime, stopRealtime } from "./realtime";
 import { DeviceKeyMismatchError, adoptPendingKeys, rotateGroupKey } from "./rekey";
 
 interface FileMeta {
@@ -65,11 +67,18 @@ function decryptBudgetExhausted(scope: string): boolean {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
+/** The cadence `timer` is currently running at, so it is only rebuilt on a change. */
+let timerInterval = 0;
 let running = false;
 /** A pinned device key changed: warn once, not on every poll. */
 let keyMismatchReported = false;
 let outboxAbortController: AbortController | null = null;
-const onFocus = (): void => void syncNow();
+const onFocus = (): void => {
+  // A backgrounded socket is often killed without a close frame, so coming back
+  // is exactly when to check rather than wait for the next ping to time out.
+  ensureRealtime();
+  void syncNow();
+};
 const onVisibilityChange = (): void => {
   if (document.visibilityState === "hidden") handOffOutboxToServiceWorker();
 };
@@ -87,7 +96,16 @@ function handOffOutboxToServiceWorker(): void {
 export function startSync(): void {
   stopSync();
   void syncNow();
-  timer = setInterval(() => void syncNow(), POLL_INTERVAL_MS);
+  setPollInterval(POLL_INTERVAL_MS);
+  // Real-time delivery is a *hint*: it collapses latency from seconds to
+  // milliseconds and lets the poll slow to a safety net, but the poll is what
+  // still guarantees delivery when a notification is dropped or the socket dies
+  // quietly.
+  try {
+    startRealtime(authHeaders(), () => void syncNow());
+  } catch {
+    // No session yet: polling alone is correct until there is one.
+  }
   window.addEventListener("focus", onFocus);
   window.addEventListener("online", onFocus);
   document.addEventListener("visibilitychange", onVisibilityChange);
@@ -97,12 +115,26 @@ export function startSync(): void {
 export function stopSync(): void {
   if (timer) clearInterval(timer);
   timer = null;
+  timerInterval = 0;
+  stopRealtime();
   window.removeEventListener("focus", onFocus);
   window.removeEventListener("online", onFocus);
   document.removeEventListener("visibilitychange", onVisibilityChange);
   window.removeEventListener("pagehide", onPageHide);
   outboxAbortController?.abort();
   outboxAbortController = null;
+}
+
+/**
+ * Poll at `interval`, rebuilding the timer only when the cadence actually
+ * changes — every sync pass calls this, and resetting the interval each time
+ * would keep pushing the next tick away.
+ */
+function setPollInterval(interval: number): void {
+  if (timerInterval === interval) return;
+  if (timer) clearInterval(timer);
+  timerInterval = interval;
+  timer = setInterval(() => void syncNow(), interval);
 }
 
 /** Run one sync pass, skipping if one is already in flight. */
@@ -118,6 +150,9 @@ export async function syncNow(): Promise<void> {
   running = true;
   try {
     const auth = authHeaders();
+    // While the socket is up the poll is only a backstop; when it is down it is
+    // the delivery mechanism again.
+    setPollInterval(realtimeConnected() ? REALTIME_POLL_INTERVAL_MS : POLL_INTERVAL_MS);
 
     // Outbox flush is shared with the service worker (sync/outbox.ts); it
     // persists every state change itself, so only the signal needs updating.

@@ -10,6 +10,8 @@ export interface Env {
   FILES: R2Bucket;
   /** Static assets binding serving the built PWA. */
   ASSETS: Fetcher;
+  /** One Durable Object per space, fanning delivery notifications out to its devices. */
+  SPACE_HUB: DurableObjectNamespace;
   /** Rate limit for unauthenticated endpoints (keyed by client IP). */
   RL_PUBLIC: RateLimit;
   /** Rate limit for authenticated writes (keyed by device id). */

@@ -28,6 +28,41 @@ export const MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
 export const POLL_INTERVAL_MS = 8000;
 
 /**
+ * Polling interval once a real-time connection is live.
+ *
+ * Not zero: the socket is a *hint*, never the source of truth. A notification
+ * that is dropped in transit, or one that arrives while the tab is being
+ * frozen, would otherwise strand a message until the next user action. This is
+ * the safety net that makes losing one harmless, at 1/7th of the battery cost
+ * of the old cadence.
+ */
+export const REALTIME_POLL_INTERVAL_MS = 60_000;
+
+/** WebSocket endpoint devices subscribe to for delivery notifications. */
+export const REALTIME_PATH = "/api/realtime";
+
+/**
+ * The bearer token travels as a WebSocket subprotocol because the browser API
+ * cannot set request headers, and a token in the query string ends up in
+ * access logs and referrers. Device tokens are base64url, which is a valid
+ * subprotocol token.
+ */
+export const REALTIME_AUTH_PROTOCOL_PREFIX = "fs-auth.";
+
+/** Interval at which the client pings, to notice a dead connection early. */
+export const REALTIME_PING_INTERVAL_MS = 30_000;
+
+/**
+ * What the server pushes. Deliberately contentless: it says "there is something
+ * for you", and the client then runs the same sync pass polling would have. No
+ * ciphertext, no ids and no delivery bookkeeping travel over the socket, so the
+ * real-time path adds nothing to what the server could learn or forge.
+ */
+export interface RealtimeEvent {
+  type: "sync";
+}
+
+/**
  * Epoch of the GroupKey a space is born with. Every key rotation increments it
  * by exactly one, so an epoch identifies which key a ciphertext needs. Spaces
  * created before rotation existed are epoch 1 by migration default, which is

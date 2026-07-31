@@ -6,6 +6,8 @@ devices — like a private WhatsApp group just for your phones and laptops.
 - **E2E encrypted**: the server (Cloudflare) only ever sees ciphertext, public keys and hashes.
   Plaintext and the symmetric `GroupKey` never leave your devices.
 - **Asynchronous**: devices don't need to be online at the same time.
+- **Real-time when they are**: a Durable Object per space notifies connected devices, so a
+  message lands in well under a second instead of waiting for a poll.
 - **No indefinite cloud storage**: encrypted files live in R2 for at most 24 h and are deleted
   immediately once every active device confirms download.
 - **100 % Cloudflare backend**: a single Worker serving the PWA + the API, backed by D1 and R2.
@@ -16,7 +18,7 @@ devices — like a private WhatsApp group just for your phones and laptops.
 file-sharer/
 ├── packages/shared   # Shared TypeScript contract (DTOs + constants)
 └── apps/
-    ├── worker        # Cloudflare Worker: API + static assets + D1 + R2 + cron
+    ├── worker        # Cloudflare Worker: API + static assets + D1 + R2 + cron + Durable Object
     └── web           # PWA: Preact + Vite + Web Crypto + IndexedDB
 ```
 
@@ -68,6 +70,18 @@ same origin — one deploy, no CORS.
   server serves. The space creator self-signs, a joining device inherits the introducer's verified
   view inside its (encrypted) pairing package, and from there trust extends by attestation. Keys
   already held are never silently replaced: a change stops a key rotation instead.
+
+### Delivery
+
+Devices hold one WebSocket to a Durable Object addressed by their space id. When a message is
+sent — or a device revoked, or the key rotated — the API notifies that object, which wakes the
+other devices in the space. **The socket carries no content**: the event says only "there is
+something for you", and the device then runs the same authenticated sync pass polling ran, so
+neither the ciphertext nor the delivery bookkeeping ever leaves D1.
+
+Polling does not go away, it slows down (8 s → 60 s while connected). The socket is a latency
+optimisation, never the delivery guarantee: a dropped notification, a frozen tab or a proxy that
+killed the connection without a close frame costs a few seconds, never a message.
 
 ### What this does *not* protect against
 

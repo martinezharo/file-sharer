@@ -83,6 +83,7 @@ other devices (including devices that are offline at the time).
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | POST | `/api/groups` | none | Create group + first device |
+| GET | `/api/realtime` | bearer¹ | WebSocket: delivery notifications for this device's space |
 | POST | `/api/pairing/:id/request` | none* | Joining device publishes its public key |
 | POST | `/api/pairing/:id/complete` | bearer | Existing device deposits wrapped GroupKey |
 | GET | `/api/pairing/:id` | none* | Joining device polls for the wrapped package |
@@ -95,3 +96,10 @@ other devices (including devices that are offline at the time).
 | DELETE | `/api/devices/:id` | bearer | Revoke a device |
 
 \* Protected by an unguessable, short-lived `pairingId`; contents are end-to-end encrypted.
+
+¹ The browser WebSocket API cannot set request headers, so this route also accepts the bearer as a
+subprotocol (`fs-auth.<token>`) — which keeps the credential out of the query string, and so out of
+access logs and referrers. Authentication is otherwise identical: same token, same revocation, same
+401/403. The connection is then handed to the space's `SpaceHub` Durable Object, which holds the
+sockets and fans out a contentless `{"type":"sync"}` when the API notifies it. It stores nothing and
+uses the hibernation API, so an idle space costs nothing.

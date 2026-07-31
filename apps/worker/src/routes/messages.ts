@@ -9,6 +9,7 @@ import { authenticate } from "../auth";
 import { activeDeviceIds, deleteMessageById, fileStorageKey } from "../db";
 import { ApiError, json } from "../errors";
 import { optionalString, readJson, requireId, requireInt } from "../http";
+import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
 import { pendingKeysFor } from "./keys";
@@ -127,6 +128,11 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     }
     throw error;
   }
+
+  // Wake the recipients now instead of leaving them to notice on their next
+  // poll. Never awaited: a notification that fails costs one poll interval of
+  // latency, while making the send wait on it would cost the user their message.
+  c.ctx.waitUntil(notifySpace(c.env, auth.groupId, auth.deviceId));
 
   return json({ ok: true } satisfies SendMessageResponse);
 }

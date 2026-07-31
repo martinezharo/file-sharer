@@ -13,8 +13,9 @@
 
 Biggest remaining items (need design decisions, don't do blindly):
 
-- **Real-time delivery (WebSocket/Durable Objects)** replacing the 8 s poll. 🟠🏗️
-- **Web Push**: new-message notifications with the app closed. 🟠🏗️
+- **Web Push**: new-message notifications with the app closed. 🟠🏗️ The Durable Object that
+  now fans out real-time notifications is the natural place to send them from — it already
+  knows which devices are connected, so the ones that are *not* are exactly the ones to push to.
 
 ---
 
@@ -30,7 +31,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 3. Performance
 
-- [ ] 🟠🏗️ **Polling every 8 s** (`POLL_INTERVAL_MS`) drains battery and adds latency. Migrate to WebSocket/SSE with Durable Objects for real-time push delivery.
+- [ ] 🔵⚡ **The safety-net poll is a fixed 60 s** while the socket is up. It could back off further (or stop while the tab is hidden and a notification would wake it anyway), but only once there is evidence about how often a notification is actually lost.
 - [ ] 🟡⚡ **Dead `since` cursor — needs a design decision, not a blind wire-up.** `apps/web/src/sync/sync.ts` always calls `api.pendingMessages(auth)` with `since=0`. On inspection this isn't just an unused optimization: the worker query (`apps/worker/src/routes/messages.ts`) already scopes results via `ds.device_id = ? AND ds.downloaded_at IS NULL` (backed by `idx_delivery_device_pending`), so every row returned is, by definition, still pending for this device — `since` currently adds nothing. Naively wiring it to "last acked `createdAt`" would filter on `m.created_at`, which is a wall-clock timestamp assigned by whichever edge Worker handled `sendMessage`; under clock skew/out-of-order arrival across colos, a message from another device could land with a `created_at` at or before the cursor and get **silently filtered out and never delivered**. If this is worth doing, it needs a monotonic cursor (e.g. an auto-increment `rowid`/sequence) instead of `created_at`, which is a real design decision — left for §0.
 - [ ] 🟡🛠️ **One-shot in-memory file crypto.** `encryptFile`/`decryptFile` load the whole file + ciphertext + decrypted copy (up to ~3×50 MB) into RAM. Move to chunked/streaming crypto for low-end phones and to be able to raise the size limit.
 - [ ] 🟡🛠️ **Heavy initial bundle.** `jsqr`, `qrcode` and the scanner are only needed when pairing; the 3 variable font families (`bricolage`, `hanken`, `jetbrains-mono`) are loaded eagerly in `main.tsx`. Code-split the pairing flow (lazy import) and subset/selectively preload fonts.
@@ -68,7 +69,6 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 7. Features (roadmap "next level")
 
-- [ ] 🟠🏗️ Real-time delivery (WebSocket/Durable Objects) replacing polling.
 - [ ] 🟠🏗️ **Web Push**: new-message notifications with the app closed (fits the async model perfectly).
 - [ ] 🟡🛠️ **Ownership transfer.** Add an explicit, confirmed hand-off to another admin before the owner leaves. (Recovering a permanently lost owner is now covered by the recovery file, which restores that device's identity, role included.)
 - [ ] 🟡🛠️ **Multiple files in a single message** (today each file = a separate message).
