@@ -25,9 +25,16 @@
     }
   ],
 
-  "r2_buckets": [
-    { "binding": "FILES", "bucket_name": "file-sharer-files" }
-  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "file-sharer-files" }],
+
+  // One Durable Object per space, holding the devices' WebSockets and fanning
+  // out delivery notifications. It stores nothing: the hibernation API keeps an
+  // idle space free, and D1 remains the only source of truth.
+  "durable_objects": {
+    "bindings": [{ "name": "SPACE_HUB", "class_name": "SpaceHub" }]
+  },
+
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SpaceHub"] }],
 
   // Abuse protection. The `ratelimit` binding is enforced on the Cloudflare edge
   // (per-isolate best-effort) and is a no-op in plain local dev.

@@ -17,6 +17,9 @@ const CSP = [
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
   "font-src 'self'",
+  // Covers the real-time WebSocket too: CSP3 makes 'self' match the ws:/wss:
+  // variants of the page's own origin, so this stays as tight as it looks and
+  // an XSS still has nowhere to send anything.
   "connect-src 'self'",
   "worker-src 'self'",
   "manifest-src 'self'",

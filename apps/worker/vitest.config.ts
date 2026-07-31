@@ -29,6 +29,7 @@ export default defineConfig(async () => {
           compatibilityDate: "2026-06-19",
           d1Databases: ["DB"],
           r2Buckets: ["FILES"],
+          durableObjects: { SPACE_HUB: "SpaceHub" },
           serviceBindings: {
             ASSETS: () => new Response("static asset", { status: 200 }),
           },

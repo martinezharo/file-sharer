@@ -9,6 +9,7 @@ import { authenticate } from "../auth";
 import { activeDevices } from "../db";
 import { ApiError, json } from "../errors";
 import { readJson, requireId, requireInt, requireString } from "../http";
+import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
 
@@ -115,6 +116,10 @@ export async function rotateKey(c: RouteContext): Promise<Response> {
   if (results[results.length - 1]?.meta.changes !== 1) {
     throw new ApiError("conflict", "The key was already rotated by another device");
   }
+
+  // Every remaining device now has a wrapped key waiting; the sooner they adopt
+  // it, the shorter the window in which their sends are refused as `key_rotated`.
+  c.ctx.waitUntil(notifySpace(c.env, auth.groupId, auth.deviceId));
 
   return json({ ok: true, epoch, devices: wraps.length } satisfies RotateKeyResponse);
 }

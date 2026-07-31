@@ -13,6 +13,7 @@ import { authenticate, requireAdmin, requireOwner } from "../auth";
 import { purgeDeliveredMessages } from "../db";
 import { ApiError, json } from "../errors";
 import { readJson, requireId, requireString } from "../http";
+import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 
 /**
@@ -97,6 +98,12 @@ export async function revokeDevice(c: RouteContext): Promise<Response> {
   ]);
 
   await purgeDeliveredMessages(c.env, auth.groupId);
+
+  // The space now owes a rotation. Telling the other devices immediately is
+  // what makes the rotation land in seconds rather than at the next poll, and
+  // the revoked device is already denied by `authenticate` before it could
+  // receive anything here.
+  c.ctx.waitUntil(notifySpace(c.env, auth.groupId, auth.deviceId));
 
   return json({ ok: true } satisfies RevokeDeviceResponse);
 }
