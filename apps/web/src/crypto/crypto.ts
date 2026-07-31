@@ -116,9 +116,20 @@ export function importGroupKey(raw: string): Promise<CryptoKey> {
 // Device keypair (ECDH P-256)
 // ---------------------------------------------------------------------------
 
-/** Private key is non-extractable; the public key is always exportable. */
+/**
+ * The device's ECDH identity.
+ *
+ * Extractable, which was a deliberate change: a space whose devices are all
+ * lost is otherwise unrecoverable, and a recovery file that cannot carry this
+ * key would restore a device that can never be handed a rotated GroupKey. What
+ * non-extractability bought was narrower than it looks — the GroupKey next to
+ * it in the same store has to be extractable to be wrapped for other devices at
+ * all, so anyone who could read this key already had everything worth reading.
+ * The at-rest lock (crypto/vault.ts) is what actually closes that, and it
+ * covers the whole store rather than one key.
+ */
 export function generateDeviceKeyPair(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey({ name: EC, namedCurve: CURVE }, false, ["deriveKey"]);
+  return crypto.subtle.generateKey({ name: EC, namedCurve: CURVE }, true, ["deriveKey"]);
 }
 
 export async function exportPublicKey(key: CryptoKey): Promise<string> {
@@ -140,12 +151,12 @@ export function importPublicKey(spki: string): Promise<CryptoKey> {
 // ---------------------------------------------------------------------------
 
 /**
- * The device's long-term signing identity. Non-extractable, like the ECDH key:
- * it can never leave this device, so a signature is proof that *this* device
- * produced the statement — which is the whole point of the pair.
+ * The device's long-term signing identity. Extractable for the same reason as
+ * the ECDH key above: a restored device that cannot sign is a device whose
+ * messages every peer reports as unverifiable forever.
  */
 export function generateSigningKeyPair(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey({ name: SIG, namedCurve: CURVE }, false, ["sign", "verify"]);
+  return crypto.subtle.generateKey({ name: SIG, namedCurve: CURVE }, true, ["sign", "verify"]);
 }
 
 export async function exportSigningPublicKey(key: CryptoKey): Promise<string> {
@@ -192,6 +203,62 @@ export async function verifyStatement(
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Serialising a device keypair (at-rest vault + recovery file)
+// ---------------------------------------------------------------------------
+
+/** A keypair as base64url SPKI + PKCS#8, the only form that survives storage. */
+export interface SerializedKeyPair {
+  publicKey: string;
+  privateKey: string;
+}
+
+/**
+ * Export a keypair, or null when its private half cannot leave the browser.
+ *
+ * Null is not an error: a device linked before this existed has a
+ * non-extractable private key by construction. It keeps working exactly as it
+ * did — it simply cannot be sealed into a vault or written into a recovery
+ * file, and the UI says so instead of producing a backup that would not
+ * restore.
+ */
+export async function serializeKeyPair(pair: CryptoKeyPair): Promise<SerializedKeyPair | null> {
+  try {
+    return {
+      publicKey: bufToBase64Url(await crypto.subtle.exportKey("spki", pair.publicKey)),
+      privateKey: bufToBase64Url(await crypto.subtle.exportKey("pkcs8", pair.privateKey)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function importDeviceKeyPair(pair: SerializedKeyPair): Promise<CryptoKeyPair> {
+  return {
+    publicKey: await importPublicKey(pair.publicKey),
+    privateKey: await crypto.subtle.importKey(
+      "pkcs8",
+      base64UrlToBuf(pair.privateKey),
+      { name: EC, namedCurve: CURVE },
+      true,
+      ["deriveKey"],
+    ),
+  };
+}
+
+export async function importSigningKeyPair(pair: SerializedKeyPair): Promise<CryptoKeyPair> {
+  return {
+    publicKey: await importSigningPublicKey(pair.publicKey),
+    privateKey: await crypto.subtle.importKey(
+      "pkcs8",
+      base64UrlToBuf(pair.privateKey),
+      { name: SIG, namedCurve: CURVE },
+      true,
+      ["sign"],
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------

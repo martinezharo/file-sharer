@@ -20,6 +20,7 @@ import {
 import { type Scanner, startScanner } from "../qr/scan";
 import { session } from "../state/session";
 import { showToast } from "../state/ui";
+import { SecurityPanel } from "./SecurityPanel";
 import { Button, Modal, Spinner, cx, initials } from "./components";
 
 export function DeviceManager(): JSX.Element {
@@ -187,6 +188,8 @@ export function DeviceManager(): JSX.Element {
             ))}
           </div>
         )}
+
+        {!loading && <SecurityPanel />}
       </div>
 
       {adding && (

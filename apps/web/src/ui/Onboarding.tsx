@@ -1,12 +1,13 @@
-import { Check, ChevronRight, Copy, Link2, Plus, ShieldCheck } from "lucide-preact";
+import { Check, ChevronRight, Copy, Link2, LifeBuoy, Plus, ShieldCheck } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { cancelLinking, createSpace, linking, startLinking } from "../actions";
 import { renderQrToCanvas } from "../qr/generate";
+import { restoreFromRecoveryFile } from "../recovery";
 import { showToast } from "../state/ui";
 import { Button, Spinner } from "./components";
 
-type Mode = "choose" | "create" | "link";
+type Mode = "choose" | "create" | "link" | "restore";
 
 /**
  * The sign-up / device-linking panel. Used as the primary call-to-action on
@@ -73,6 +74,12 @@ export function OnboardingCard(): JSX.Element {
               desc="Join from another device"
               onClick={() => setMode("link")}
             />
+            <Choice
+              icon={<LifeBuoy />}
+              title="Restore from a recovery file"
+              desc="Lost every device? Use your backup"
+              onClick={() => setMode("restore")}
+            />
           </div>
         </>
       )}
@@ -103,6 +110,8 @@ export function OnboardingCard(): JSX.Element {
         </form>
       )}
 
+      {mode === "restore" && <RestoreFlow onBack={() => setMode("choose")} />}
+
       {mode === "link" && (
         <>
           {!link && (
@@ -123,6 +132,79 @@ export function OnboardingCard(): JSX.Element {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The way back into a space whose devices are all gone. It asks for the file
+ * *and* the code because either one alone is useless — which is the property
+ * that makes it safe to keep the file in cloud storage.
+ */
+function RestoreFlow({ onBack }: { onBack: () => void }): JSX.Element {
+  const [file, setFile] = useState<File | null>(null);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function restore(): Promise<void> {
+    if (!file) return;
+    setBusy(true);
+    try {
+      await restoreFromRecoveryFile(await file.text(), code);
+      showToast("Space restored on this device");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not restore", "error");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      class="flex flex-col gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void restore();
+      }}
+    >
+      <header class="mb-1">
+        <h2 class="text-[22px] tracking-[-0.02em]">Restore a space</h2>
+        <p class="mt-1.5 text-sm leading-relaxed text-muted">
+          Pick the recovery file you saved and enter its code. This device takes over the identity
+          the file was exported from.
+        </p>
+      </header>
+
+      <label class="flex flex-col gap-1.5 text-left">
+        <span class="text-[13px] font-medium text-subtle">Recovery file</span>
+        <input
+          type="file"
+          accept="application/json,.json"
+          class="field-input file:mr-3 file:rounded-[8px] file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-[13px] file:font-medium"
+          onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+        />
+      </label>
+
+      <label class="flex flex-col gap-1.5 text-left">
+        <span class="text-[13px] font-medium text-subtle">Recovery code</span>
+        <input
+          type="text"
+          class="field-input font-mono tracking-[0.06em]"
+          placeholder="XXXX-XXXX-XXXX-…"
+          autoComplete="off"
+          spellcheck={false}
+          value={code}
+          onInput={(e) => setCode((e.target as HTMLInputElement).value)}
+        />
+      </label>
+
+      <div class="mt-1 flex flex-col gap-2">
+        <Button variant="primary" type="submit" disabled={busy || !file || !code.trim()}>
+          {busy ? <Spinner /> : "Restore space"}
+        </Button>
+        <Button variant="ghost" type="button" onClick={onBack} disabled={busy}>
+          Back
+        </Button>
+      </div>
+    </form>
   );
 }
 
