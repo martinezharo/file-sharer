@@ -34,6 +34,32 @@ wrangler dev --test-scheduled # also exposes GET /__scheduled to trigger cron cl
 In the monorepo, run `pnpm dev` from the root to start the Worker and the Vite dev server together
 (Vite proxies `/api` to `http://localhost:8787`).
 
+## Tests
+
+```bash
+pnpm --filter @file-sharer/worker test    # or `pnpm test` from the root, for every package
+```
+
+Tests run **inside workerd** through `@cloudflare/vitest-pool-workers`, so `env.DB` is a real D1,
+`env.FILES` a real R2 and `SELF` the Worker as it would be deployed. Nothing is mocked: most of the
+behaviour worth protecting here lives in SQL — the cross-group upsert guard in pairing, the
+compare-and-swap that serializes two concurrent key rotations, the cascade that deletes a message
+and its blob on the last ack — and a mock could only ever prove that the mock behaves like the mock.
+
+The schema is built from the real `migrations/` directory before each test file
+(`src/test/apply-migrations.ts`), so a migration that forgets a column or a constraint fails the
+suite instead of production.
+
+Bindings come from `vitest.config.ts`, not from `wrangler.jsonc`: tests need neither the static
+assets (the built PWA) nor the edge rate limiters, which have no local implementation. Leaving the
+limiters out is deliberate — it exercises the same "binding not provisioned" no-op path as plain
+`wrangler dev`.
+
+Fixtures (`src/test/helpers.ts`) write rows directly rather than driving the API, so a test about
+revocation fails when revocation breaks and not when pairing does. They are unique per call: tests
+in one file share a database, and both `devices.id` and `devices.auth_token_hash` are globally
+unique.
+
 ## Deploy
 
 Use `pnpm run deploy` from the repository root. It is the only path that applies pending D1

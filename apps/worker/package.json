@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm db:migrate:local && wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply file-sharer-db --local",
@@ -15,8 +16,10 @@
     "@file-sharer/shared": "workspace:*"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.19.1",
     "@cloudflare/workers-types": "^4.20250620.0",
     "typescript": "^5.7.2",
+    "vitest": "^4.1.10",
     "wrangler": "^4.103.0"
   }
 }
