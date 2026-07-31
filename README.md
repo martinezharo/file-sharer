@@ -83,6 +83,15 @@ pnpm dev            # worker (wrangler dev) + web (vite) together
 branch that adds one can't leave you with a schema the API doesn't match. See
 `apps/worker/README.md` for the one-time D1/R2 setup.
 
+```bash
+pnpm test           # PWA (crypto, outbox, share) + Worker (API, in workerd against real D1/R2)
+pnpm typecheck
+pnpm lint
+```
+
+Worker tests run inside workerd with a real D1 and R2, and build the schema from the actual
+migrations — see `apps/worker/README.md`.
+
 ## Deploy
 
 ```bash
