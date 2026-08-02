@@ -16,7 +16,8 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:",
-  "font-src 'self'",
+  // Vite inlines Fontsource's smallest woff2 subsets as data: URLs.
+  "font-src 'self' data:",
   // Covers the real-time WebSocket too: CSP3 makes 'self' match the ws:/wss:
   // variants of the page's own origin, so this stays as tight as it looks and
   // an XSS still has nowhere to send anything.

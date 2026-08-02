@@ -26,6 +26,7 @@ describe("withSecurityHeaders", () => {
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("connect-src 'self'");
+    expect(csp).toContain("font-src 'self' data:");
   });
 
   it("preserves the status, body and pre-existing headers", async () => {
