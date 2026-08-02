@@ -281,7 +281,7 @@ function SiteHeader({ scrolled, onCreate }: { scrolled: boolean; onCreate: () =>
       )}
     >
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-6 max-md:px-4">
-        <a href="#top" class="flex items-center" aria-label="file-sharer home">
+        <a href="#top" class="flex items-center">
           <Logo />
         </a>
         <nav class="flex items-center gap-1 text-[13.5px] font-medium text-subtle max-md:hidden">

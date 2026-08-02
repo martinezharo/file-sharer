@@ -1,0 +1,14 @@
+# file-sharer
+
+> Private, end-to-end encrypted sharing of text and files between your own devices.
+
+## Product
+
+- [file-sharer homepage](https://file-sharer.4oli.com/): Create or link a private space without an account.
+- [Sitemap](https://file-sharer.4oli.com/sitemap.xml): Public URLs for the application.
+
+## Key features
+
+- Messages and files are encrypted on the device before they leave it.
+- The server stores ciphertext, public keys and hashes rather than plaintext.
+- Devices can be paired with a QR code and used offline as an installable PWA.

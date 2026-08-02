@@ -62,7 +62,8 @@
 
   --c-ink: #1a1a1e;
   --c-subtle: #52525b;
-  --c-muted: #82828c;
+  /* Keep secondary copy readable on both white and surface-3 backgrounds. */
+  --c-muted: #6b6b75;
 
   --c-line: rgba(17, 17, 26, 0.08);
   --c-line-strong: rgba(17, 17, 26, 0.14);
@@ -95,7 +96,7 @@
 
     --c-ink: #f3f3f5;
     --c-subtle: #b8b8c0;
-    --c-muted: #85858f;
+    --c-muted: #92929c;
 
     --c-line: rgba(255, 255, 255, 0.08);
     --c-line-strong: rgba(255, 255, 255, 0.14);
