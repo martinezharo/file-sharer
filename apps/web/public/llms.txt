@@ -5,10 +5,14 @@
 ## Product
 
 - [file-sharer homepage](https://file-sharer.4oli.com/): Create or link a private space without an account.
+- [How file-sharer works](https://file-sharer.4oli.com/how-it-works/): Create a space, pair devices and share text and files.
+- [Security model](https://file-sharer.4oli.com/security/): Client-side encryption, device keys and QR-code pairing.
+- [Privacy overview](https://file-sharer.4oli.com/privacy/): What stays local, what the server receives and retention.
+- [Install file-sharer](https://file-sharer.4oli.com/install/): Use the app as an installable progressive web app.
 - [Sitemap](https://file-sharer.4oli.com/sitemap.xml): Public URLs for the application.
 
 ## Key features
 
-- Messages and files are encrypted on the device before they leave it.
-- The server stores ciphertext, public keys and hashes rather than plaintext.
-- Devices can be paired with a QR code and used offline as an installable PWA.
+- Messages, files, and file metadata are encrypted on the device before upload.
+- The server receives ciphertext, public keys, authentication data, hashes, and delivery metadata — not message or file plaintext.
+- Devices can be paired with a QR code, and the installable PWA can save outgoing messages or selected files locally; uploads and delivery require a connection.

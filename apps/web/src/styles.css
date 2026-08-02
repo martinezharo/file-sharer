@@ -38,8 +38,8 @@
   --shadow-float: 0 24px 48px -12px rgba(17, 17, 26, 0.18), 0 8px 16px -8px rgba(17, 17, 26, 0.1);
   --shadow-accent: 0 8px 20px -6px var(--c-accent-glow);
 
-  --font-sans: "Hanken Grotesk Variable", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: "Hanken Grotesk Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
   --font-display: "Bricolage Grotesque Variable", "Hanken Grotesk Variable", sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
@@ -72,9 +72,11 @@
   --c-danger-soft: color-mix(in srgb, var(--c-danger) 12%, transparent);
   --c-success: #30a46c;
 
-  --bg-grad:
-    radial-gradient(80% 55% at 50% -8%, color-mix(in srgb, var(--c-accent) 14%, transparent) 0%, transparent 60%),
-    radial-gradient(120% 120% at 50% 0%, #ffffff 0%, #f4f4f6 55%, #eeeef1 100%);
+  --bg-grad: radial-gradient(
+      80% 55% at 50% -8%,
+      color-mix(in srgb, var(--c-accent) 14%, transparent) 0%,
+      transparent 60%
+    ), radial-gradient(120% 120% at 50% 0%, #ffffff 0%, #f4f4f6 55%, #eeeef1 100%);
   --grain-opacity: 0.03;
   --ring: 0 0 0 3px color-mix(in srgb, var(--c-accent) 35%, transparent);
 }
@@ -105,9 +107,11 @@
     --c-danger-soft: color-mix(in srgb, var(--c-danger) 16%, transparent);
     --c-success: #3dd68c;
 
-    --bg-grad:
-      radial-gradient(75% 50% at 50% -10%, color-mix(in srgb, var(--c-accent) 22%, transparent) 0%, transparent 62%),
-      radial-gradient(120% 120% at 50% 0%, #15151b 0%, #0d0d11 52%, #08080a 100%);
+    --bg-grad: radial-gradient(
+        75% 50% at 50% -10%,
+        color-mix(in srgb, var(--c-accent) 22%, transparent) 0%,
+        transparent 62%
+      ), radial-gradient(120% 120% at 50% 0%, #15151b 0%, #0d0d11 52%, #08080a 100%);
     --grain-opacity: 0.05;
 
     --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);

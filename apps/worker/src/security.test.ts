@@ -48,6 +48,18 @@ describe("withSecurityHeaders", () => {
 
     expect(withSecurityHeaders(original).headers.get("X-Frame-Options")).toBe("DENY");
   });
+
+  it("marks error responses as non-indexable", () => {
+    expect(
+      withSecurityHeaders(new Response(null, { status: 404 })).headers.get("X-Robots-Tag"),
+    ).toBe("noindex, nofollow");
+  });
+
+  it("can mark a successful response as non-indexable on a preview host", () => {
+    expect(
+      withSecurityHeaders(new Response("preview"), { noIndex: true }).headers.get("X-Robots-Tag"),
+    ).toBe("noindex, nofollow");
+  });
 });
 
 describe("clientIp", () => {

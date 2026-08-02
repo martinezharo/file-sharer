@@ -40,12 +40,10 @@ const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 rounded-card font-medium tracking-[-0.01em] whitespace-nowrap transition active:scale-[0.995] disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:size-[18px]";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    "bg-accent text-on-accent shadow-accent hover:bg-accent-hover active:bg-accent-press",
+  primary: "bg-accent text-on-accent shadow-accent hover:bg-accent-hover active:bg-accent-press",
   secondary: "bg-surface border border-line-strong text-ink hover:bg-surface-3",
   ghost: "bg-transparent text-subtle hover:bg-surface-3 hover:text-ink",
-  danger:
-    "bg-transparent text-danger border border-danger/35 hover:bg-danger-soft",
+  danger: "bg-transparent text-danger border border-danger/35 hover:bg-danger-soft",
 };
 
 interface ButtonProps extends Omit<JSX.IntrinsicElements["button"], "size"> {
@@ -109,7 +107,9 @@ export function Logo({ size = "md" }: { size?: "md" | "lg" }): JSX.Element {
         class={cx(
           "grid place-items-center text-white shadow-accent flex-none ring-1 ring-inset ring-white/20",
           "bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_82%,#fff)_0%,var(--c-accent)_52%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)]",
-          lg ? "size-14 rounded-[18px] [&_svg]:size-[30px]" : "size-[34px] rounded-[11px] [&_svg]:size-[19px]",
+          lg
+            ? "size-14 rounded-[18px] [&_svg]:size-[30px]"
+            : "size-[34px] rounded-[11px] [&_svg]:size-[19px]",
         )}
       >
         <Shield strokeWidth={2.25} fill="currentColor" stroke="none" />

@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Copy, Link2, LifeBuoy, Plus, ShieldCheck } from "lucide-preact";
+import { Check, ChevronRight, Copy, LifeBuoy, Link2, Plus, ShieldCheck } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { cancelLinking, createSpace, linking, startLinking } from "../actions";
@@ -53,12 +53,14 @@ export function OnboardingCard(): JSX.Element {
           <header class="mb-6">
             <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent [&_svg]:size-3.5">
               <ShieldCheck />
-              Zero-knowledge
+              Encrypted before upload
             </span>
-            <h2 class="mt-3.5 text-[22px] tracking-[-0.02em]">Start sharing privately</h2>
+            <h2 class="mt-3.5 text-[22px] tracking-[-0.02em]">
+              Your private space for every device
+            </h2>
             <p class="mt-1.5 text-sm leading-relaxed text-muted">
-              Create a private space or link this device to one you already have. Free, no account
-              needed.
+              Create a private space or link this device to one you already have. No account or
+              server password needed.
             </p>
           </header>
           <div class="flex flex-col gap-2.5">
@@ -93,9 +95,9 @@ export function OnboardingCard(): JSX.Element {
           }}
         >
           <header class="mb-1">
-            <h2 class="text-[22px] tracking-[-0.02em]">Create a space</h2>
+            <h2 class="text-[22px] tracking-[-0.02em]">Create your private space</h2>
             <p class="mt-1.5 text-sm leading-relaxed text-muted">
-              Give this device a name to get started.
+              Give this device a name to get started — no account required.
             </p>
           </header>
           <DeviceNameField value={name} onInput={setName} placeholder="e.g. My laptop" />
@@ -318,8 +320,8 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
   return (
     <div class="flex flex-col items-center gap-5 text-center">
       <p class="text-sm leading-relaxed text-subtle">
-        On a device already in the space, open <strong class="text-ink">Devices → Add device</strong>{" "}
-        and scan this code.
+        On a device already in the space, open{" "}
+        <strong class="text-ink">Devices → Add device</strong> and scan this code.
       </p>
       <div class="rounded-xl2 bg-white p-4 shadow-pop">
         <canvas ref={canvasRef} class="block rounded-lg" />

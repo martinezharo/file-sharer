@@ -1,4 +1,10 @@
-import { AlertTriangle, LockKeyhole, LogOut, MessagesSquare, MonitorSmartphone } from "lucide-preact";
+import {
+  AlertTriangle,
+  LockKeyhole,
+  LogOut,
+  MessagesSquare,
+  MonitorSmartphone,
+} from "lucide-preact";
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 import { logout, startSession } from "../actions";
@@ -114,9 +120,7 @@ function CurrentView(): JSX.Element {
                   onClick={() => (view.value = id)}
                   class={cx(
                     "inline-flex h-8 w-[38px] items-center justify-center rounded-[7px] transition [&_svg]:size-[18px]",
-                    current === id
-                      ? "bg-surface text-accent shadow-soft"
-                      : "text-muted",
+                    current === id ? "bg-surface text-accent shadow-soft" : "text-muted",
                   )}
                 >
                   <Icon />
@@ -148,8 +152,8 @@ function CurrentView(): JSX.Element {
             </p>
           </div>
           <p class="text-[13.5px] leading-5 text-subtle">
-            Other devices in the space will keep their access. You can link this device again later from
-            another device.
+            Other devices in the space will keep their access. You can link this device again later
+            from another device.
           </p>
           <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
             <Button

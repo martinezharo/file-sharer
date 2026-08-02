@@ -26,7 +26,7 @@ export default defineConfig(async () => {
       cloudflareTest({
         main: "./src/index.ts",
         miniflare: {
-          compatibilityDate: "2026-06-19",
+          compatibilityDate: "2026-06-24",
           d1Databases: ["DB"],
           r2Buckets: ["FILES"],
           durableObjects: { SPACE_HUB: "SpaceHub" },

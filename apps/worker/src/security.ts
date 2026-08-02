@@ -40,11 +40,22 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Cross-Origin-Resource-Policy": "same-origin",
 };
 
+interface SecurityHeaderOptions {
+  /** Prevent previews and indexing on non-canonical or error responses. */
+  noIndex?: boolean;
+}
+
 /** Return a copy of `response` with the security headers applied. */
-export function withSecurityHeaders(response: Response): Response {
+export function withSecurityHeaders(
+  response: Response,
+  options: SecurityHeaderOptions = {},
+): Response {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     headers.set(name, value);
+  }
+  if (options.noIndex || response.status >= 400) {
+    headers.set("X-Robots-Tag", "noindex, nofollow");
   }
   return new Response(response.body, {
     status: response.status,

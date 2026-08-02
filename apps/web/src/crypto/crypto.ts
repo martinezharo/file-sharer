@@ -6,8 +6,9 @@
  *    device and shared to others only via the ECIES wrap below. Revoking a
  *    device rotates it, so keys are versioned by epoch and each device keeps
  *    every epoch it has held (crypto/keyring.ts) to stay able to read history.
- *  - Device keypair: ECDH P-256. The private key is non-extractable.
- *  - Signing keypair: ECDSA P-256, also non-extractable. Separate from the ECDH
+ *  - Device keypair: ECDH P-256. The private key stays local and can be carried
+ *    only in the app's encrypted vault/recovery file.
+ *  - Signing keypair: ECDSA P-256, also kept local. Separate from the ECDH
  *    key on purpose — one key, one job — and used both to sign every message
  *    (so the server cannot forge who sent what) and to attest to the keys of a
  *    device this one adds (so the roster is verifiable rather than trusted).
@@ -15,7 +16,8 @@
  *    one-time AES-GCM key that encrypts a JSON secret. Used for the pairing
  *    package and for handing a rotated GroupKey to each remaining device.
  *
- * The server never sees plaintext, the GroupKey, or the group auth token.
+ * The server never sees plaintext or an unwrapped GroupKey. Authenticated
+ * requests carry a bearer token; only its hash is stored server-side.
  */
 
 import type { PairingPayload } from "@file-sharer/shared";
@@ -216,13 +218,12 @@ export interface SerializedKeyPair {
 }
 
 /**
- * Export a keypair, or null when its private half cannot leave the browser.
+ * Export a keypair for the encrypted local vault/recovery file, or null for a
+ * legacy key that was generated before recovery export existed.
  *
- * Null is not an error: a device linked before this existed has a
- * non-extractable private key by construction. It keeps working exactly as it
- * did — it simply cannot be sealed into a vault or written into a recovery
- * file, and the UI says so instead of producing a backup that would not
- * restore.
+ * Null is not an error: a legacy device keeps working exactly as it did, but
+ * cannot be sealed into a vault or written into a recovery file. The UI says so
+ * instead of producing a backup that would not restore.
  */
 export async function serializeKeyPair(pair: CryptoKeyPair): Promise<SerializedKeyPair | null> {
   try {

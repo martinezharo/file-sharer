@@ -23,8 +23,9 @@ export async function startScanner(
   let stream: MediaStream | null = null;
   let raf = 0;
 
-  const DetectorCtor = (globalThis as { BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike })
-    .BarcodeDetector;
+  const DetectorCtor = (
+    globalThis as { BarcodeDetector?: new (opts: { formats: string[] }) => BarcodeDetectorLike }
+  ).BarcodeDetector;
   const detector = DetectorCtor ? new DetectorCtor({ formats: ["qr_code"] }) : null;
 
   try {

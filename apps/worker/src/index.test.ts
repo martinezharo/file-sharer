@@ -18,6 +18,22 @@ describe("fetch dispatch", () => {
     expect(response.status).toBe(404);
   });
 
+  it("redirects HTTP requests to HTTPS before dispatching them", async () => {
+    const response = await SELF.fetch("http://x.dev/private?from=seo", { redirect: "manual" });
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("Location")).toBe("https://x.dev/private?from=seo");
+  });
+
+  it("redirects the www hostname to the canonical origin", async () => {
+    const response = await SELF.fetch("https://www.file-sharer.4oli.com/security/", {
+      redirect: "manual",
+    });
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("Location")).toBe("https://file-sharer.4oli.com/security/");
+  });
+
   it("serves everything outside /api from the assets binding", async () => {
     const response = await SELF.fetch("https://x.dev/some/spa/route");
 
@@ -36,6 +52,7 @@ describe("fetch dispatch", () => {
     const response = await SELF.fetch("https://x.dev/index.html");
 
     expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'self'");
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 
   it("turns an unexpected throw into a generic 500 that leaks nothing", async () => {

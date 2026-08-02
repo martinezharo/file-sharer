@@ -13,6 +13,8 @@ import { withSecurityHeaders } from "./security";
 
 const router = new Router();
 
+const CANONICAL_HOST = "file-sharer.4oli.com";
+
 router.post("/api/groups", createGroup);
 
 router.post("/api/pairing/:pairingId/request", requestPairing);
@@ -39,11 +41,48 @@ router.patch("/api/devices/:id/role", updateDeviceRole);
 
 export { SpaceHub };
 
+function redirectHttpToHttps(request: Request): Response | undefined {
+  const url = new URL(request.url);
+  // Keep local Wrangler development on its configured HTTP port.
+  if (url.protocol !== "http:" || ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+    return undefined;
+  }
+
+  url.protocol = "https:";
+  return withSecurityHeaders(
+    new Response(null, {
+      status: 308,
+      headers: { Location: url.toString() },
+    }),
+  );
+}
+
+function redirectWwwToCanonical(request: Request): Response | undefined {
+  const url = new URL(request.url);
+  if (url.hostname !== `www.${CANONICAL_HOST}`) return undefined;
+
+  url.protocol = "https:";
+  url.hostname = CANONICAL_HOST;
+  return withSecurityHeaders(
+    new Response(null, {
+      status: 308,
+      headers: { Location: url.toString() },
+    }),
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // The Worker only owns /api/*; everything else is static PWA assets.
+    const wwwRedirect = redirectWwwToCanonical(request);
+    if (wwwRedirect) return wwwRedirect;
+
+    const redirect = redirectHttpToHttps(request);
+    if (redirect) return redirect;
+
+    // The Worker owns /api/* and applies the same security policy to static PWA
+    // assets. The assets binding handles public HTML and the custom 404 page.
     if (url.pathname.startsWith("/api/")) {
       try {
         const response = await router.handle(request, env, ctx);
@@ -60,7 +99,10 @@ export default {
       }
     }
 
-    return withSecurityHeaders(await env.ASSETS.fetch(request));
+    const isCanonicalOrigin = url.protocol === "https:" && url.hostname === CANONICAL_HOST;
+    return withSecurityHeaders(await env.ASSETS.fetch(request), {
+      noIndex: !isCanonicalOrigin,
+    });
   },
 
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {

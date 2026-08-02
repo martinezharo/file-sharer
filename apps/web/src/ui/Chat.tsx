@@ -72,9 +72,7 @@ function Linkify({ text }: { text: string }): JSX.Element {
 function countIncomingDownloads(list: LocalMessage[]): number {
   return list.filter(
     (m) =>
-      m.direction === "in" &&
-      m.file &&
-      (m.fileState === "remote" || m.fileState === "downloading"),
+      m.direction === "in" && m.file && (m.fileState === "remote" || m.fileState === "downloading"),
   ).length;
 }
 
@@ -123,9 +121,7 @@ export function Chat(): JSX.Element {
             class="flex items-center gap-2 rounded-full bg-elevated px-3.5 py-[7px] text-[12.5px] font-medium text-ink shadow-pop"
           >
             <Spinner class="!size-[13px] !border-[1.5px]" />
-            <span>
-              Receiving {downloading === 1 ? "1 file" : `${downloading} files`}…
-            </span>
+            <span>Receiving {downloading === 1 ? "1 file" : `${downloading} files`}…</span>
           </div>
         </div>
       )}
@@ -243,7 +239,9 @@ function MessageBubble({
   }
 
   return (
-    <div class={cx("group mt-[9px] flex items-center gap-1", mine ? "justify-end" : "justify-start")}>
+    <div
+      class={cx("group mt-[9px] flex items-center gap-1", mine ? "justify-end" : "justify-start")}
+    >
       {mine && <MenuTrigger onOpen={openFromTrigger} />}
       <div
         class={cx(
@@ -284,7 +282,11 @@ function MessageBubble({
             Sender couldn&apos;t be verified
           </div>
         )}
-        {message.text && <div class="whitespace-pre-wrap break-words"><Linkify text={message.text} /></div>}
+        {message.text && (
+          <div class="whitespace-pre-wrap break-words">
+            <Linkify text={message.text} />
+          </div>
+        )}
         {message.corrupted && (
           <div class="flex items-center gap-1.5 text-[13px] italic opacity-75 [&_svg]:size-[14px]">
             <AlertCircle class="flex-none" />
@@ -456,7 +458,12 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         <div class="truncate text-[13.5px] font-medium" title={file.name}>
           {file.name}
         </div>
-        <div class={cx("font-mono text-[11px] tracking-[0.02em]", mine ? "text-on-accent/70" : "text-muted")}>
+        <div
+          class={cx(
+            "font-mono text-[11px] tracking-[0.02em]",
+            mine ? "text-on-accent/70" : "text-muted",
+          )}
+        >
           {formatBytes(file.size)}
           {stateLabel && ` · ${stateLabel}`}
         </div>
@@ -497,18 +504,16 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
               </IconButton>
             )}
             {state === "error" && (
-              <IconButton
-                label="Retry download"
-                class="size-[34px]"
-                onClick={() => void syncNow()}
-              >
+              <IconButton label="Retry download" class="size-[34px]" onClick={() => void syncNow()}>
                 <RotateCw />
               </IconButton>
             )}
             {(state === "corrupted" || state === "expired") && (
               <span
                 class="grid size-[34px] place-items-center text-muted [&_svg]:size-[18px]"
-                title={state === "corrupted" ? "Couldn't decrypt this file" : "File no longer available"}
+                title={
+                  state === "corrupted" ? "Couldn't decrypt this file" : "File no longer available"
+                }
               >
                 <AlertCircle />
               </span>

@@ -12,11 +12,7 @@
     <title>file-sharer — Encrypted file &amp; text sharing for your devices</title>
     <meta
       name="description"
-      content="file-sharer is a free, end-to-end encrypted progressive web app for sharing text and files (up to 50 MB) between your own phone, laptop and tablet. Zero-knowledge, no account."
-    />
-    <meta
-      name="keywords"
-      content="end-to-end encrypted file sharing, share files between devices, private file sharing, zero-knowledge, encrypted text sharing, send files to my devices, secure file transfer, PWA"
+      content="Create a private space to share encrypted text and files between your own devices. No account, no readable content on the server, and files up to 50 MB."
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="author" content="file-sharer" />
@@ -28,10 +24,12 @@
     <meta property="og:title" content="Encrypted file & text sharing between your own devices" />
     <meta
       property="og:description"
-      content="End-to-end encrypted, zero-knowledge sharing of text and files across your phone, laptop and tablet. Free, no account."
+      content="A private space for encrypted text and files across your own devices. No account required; the server cannot decrypt what you send."
     />
     <meta property="og:url" content="https://file-sharer.4oli.com/" />
-    <meta property="og:image" content="https://file-sharer.4oli.com/og.svg" />
+    <meta property="og:image" content="https://file-sharer.4oli.com/og.png" />
+    <meta property="og:image:secure_url" content="https://file-sharer.4oli.com/og.png" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="file-sharer — end-to-end encrypted sharing across your devices" />
@@ -41,18 +39,15 @@
     <meta name="twitter:title" content="Encrypted file & text sharing between your own devices" />
     <meta
       name="twitter:description"
-      content="End-to-end encrypted, zero-knowledge sharing of text and files across your devices. Free, no account."
+      content="A private space for encrypted text and files across your own devices. No account required; the server cannot decrypt what you send."
     />
-    <meta name="twitter:image" content="https://file-sharer.4oli.com/og.svg" />
+    <meta name="twitter:image" content="https://file-sharer.4oli.com/og.png" />
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="file-sharer" />
     <meta name="mobile-web-app-capable" content="yes" />
-
-    <!-- Keep canonical / social URLs correct on whatever origin this is served from. -->
-    <script src="/seo-canonical.js" defer></script>
 
     <!-- Structured data: the application -->
     <script type="application/ld+json">
@@ -63,17 +58,29 @@
         "url": "https://file-sharer.4oli.com/",
         "applicationCategory": "SecurityApplication",
         "operatingSystem": "Any (progressive web app)",
-        "description": "A free, end-to-end encrypted progressive web app for sharing text and files up to 50 MB between your own devices. The server is zero-knowledge and only ever stores ciphertext.",
+        "image": "https://file-sharer.4oli.com/og.png",
+        "description": "A private, end-to-end encrypted progressive web app for sharing text and files up to 50 MB between your own devices. The server can deliver ciphertext but cannot decrypt your content.",
         "browserRequirements": "Requires JavaScript and a modern browser",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "featureList": [
-          "End-to-end encryption (AES-256)",
-          "Zero-knowledge server",
+          "Encryption before upload (AES-GCM)",
+          "No account required",
           "Cross-device sync",
           "QR-code device pairing",
           "Files up to 50 MB",
-          "Installable, offline-capable PWA"
+          "Installable PWA with local history"
         ]
+      }
+    </script>
+
+    <!-- Structured data: the brand -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "file-sharer",
+        "url": "https://file-sharer.4oli.com/",
+        "logo": "https://file-sharer.4oli.com/icon-512.png"
       }
     </script>
 
@@ -85,26 +92,26 @@
         "mainEntity": [
           {
             "@type": "Question",
-            "name": "Is file-sharer really end-to-end encrypted?",
+            "name": "Is file-sharer end-to-end encrypted?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes. A symmetric AES-256 group key is created on your first device and shared only with devices you link. Messages and files are encrypted before they leave your device, and the server only ever handles ciphertext."
+              "text": "Yes. Messages, files, and file metadata are encrypted on your device with AES-GCM before upload. The server receives ciphertext and cannot decrypt the content."
             }
           },
           {
             "@type": "Question",
-            "name": "Do I need an account or email?",
+            "name": "Do I need an account?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "No. There are no accounts, no email and no passwords. You create a space on one device and link your other devices to it with a QR code."
+              "text": "No account, email, or server password is required. You can optionally protect this device with a passphrase, PIN, or passkey."
             }
           },
           {
             "@type": "Question",
-            "name": "Can you read my messages or files?",
+            "name": "Can the server read my messages or files?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "No. The server is zero-knowledge by design: it stores only ciphertext, public keys and SHA-256 hashes. Without the keys that live on your devices, the data is unreadable."
+              "text": "It cannot decrypt your content. It does receive ciphertext and the protocol metadata needed to authenticate requests and deliver messages."
             }
           },
           {
@@ -112,7 +119,7 @@
             "name": "What is the maximum file size?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "You can share files up to 50 MB. Files are encrypted on your device, delivered to your other devices, then removed from the server automatically."
+              "text": "You can share files up to 50 MB. Delivered content is purged when active recipients acknowledge it; anything left over is cleaned up within 24 hours."
             }
           },
           {
@@ -120,7 +127,7 @@
             "name": "Does it work offline?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes. file-sharer is a progressive web app you can install. Your message history is stored locally, so it remains available even when you are offline."
+              "text": "Partly. The installed PWA keeps local history available and can save outgoing messages or selected files locally, but nothing is uploaded or delivered until you reconnect."
             }
           },
           {
@@ -128,7 +135,15 @@
             "name": "How do I add another device?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "On the new device choose to link to an existing space to get a QR code, then scan it from a device already in the space. The encryption keys are exchanged securely during pairing."
+              "text": "On the new device, choose to link an existing space and show its QR code. Scan it from a linked device; the shared group key is transferred in an encrypted pairing package."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Where are the encryption keys kept?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Private device keys are generated locally and never sent to the server. The shared group key is transferred only to linked devices through encrypted pairing and key-rotation packages. An optional encrypted recovery file can carry a copy for restoring a device."
             }
           }
         ]
@@ -138,15 +153,7 @@
   <body>
     <div id="app"></div>
     <noscript>
-      <main style="max-width: 640px; margin: 10vh auto; padding: 0 24px; font-family: system-ui, sans-serif; line-height: 1.6;">
-        <h1>file-sharer — encrypted file &amp; text sharing for your devices</h1>
-        <p>
-          file-sharer is a free, end-to-end encrypted progressive web app for sharing text and files
-          (up to 50&nbsp;MB) between your own phone, laptop and tablet. The server is zero-knowledge
-          and only ever stores ciphertext — your data never leaves your devices unencrypted.
-        </p>
-        <p><strong>Please enable JavaScript to create or open your encrypted space.</strong></p>
-      </main>
+      <p class="noscript-notice"><strong>Enable JavaScript to create or open your encrypted space.</strong></p>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>

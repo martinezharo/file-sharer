@@ -8,26 +8,26 @@
  *    fires the `sync` event, which happens even after the PWA was closed.
  *
  * Everything the flush needs (session, GroupKey, queued messages, cached file
- * originals) lives in IndexedDB, so the zero-knowledge invariant is unchanged:
- * encryption happens in this worker on-device; the server still only ever
- * sees ciphertext.
+ * originals) lives in IndexedDB, so the content-confidentiality invariant is
+ * unchanged: encryption happens in this worker on-device; the server still
+ * receives ciphertext rather than readable content.
  */
 
 import { clientsClaim } from "workbox-core";
 import {
+  type PrecacheEntry,
   cleanupOutdatedCaches,
   createHandlerBoundToURL,
   precacheAndRoute,
-  type PrecacheEntry,
 } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
+import { handleShareTarget } from "./sw/share-target";
 import {
   OUTBOX_FLUSH_MESSAGE,
   OUTBOX_SYNC_TAG,
   type OutboxUpdateBroadcast,
   flushQueuedOutbox,
 } from "./sync/outbox";
-import { handleShareTarget } from "./sw/share-target";
 import type { LocalMessage } from "./types";
 
 declare let self: ServiceWorkerGlobalScope & {
@@ -50,9 +50,12 @@ clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// SPA fallback for navigations; never serve the API from cache.
+// The public pages are real static HTML. Only the root app gets the SPA
+// fallback, so an unknown URL remains a 404 and search engines do not see the
+// application shell at every path. Never serve the API from cache.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL("index.html"), {
+    allowlist: [/^\/(?:\?.*)?$/],
     denylist: [/^\/api\//],
   }),
 );

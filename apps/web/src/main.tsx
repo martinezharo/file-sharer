@@ -1,11 +1,5 @@
-import { render } from "preact";
 import { registerSW } from "virtual:pwa-register";
-import { handleAuthFailure, resumeLinking, startSession } from "./actions";
-import { setAuthFailureHandler } from "./api/client";
-import { consumeSharedContent } from "./share/incoming";
-import { loadLockState, locked } from "./state/lock";
-import { loadSession, ready, session } from "./state/session";
-import { App } from "./ui/App";
+import { render } from "preact";
 import "@fontsource-variable/bricolage-grotesque/wght.css";
 import "@fontsource-variable/hanken-grotesk/wght.css";
 import "@fontsource-variable/jetbrains-mono/wght.css";
@@ -32,34 +26,20 @@ function registerServiceWorker(): void {
   });
 }
 
-async function bootstrap(): Promise<void> {
-  // Any authenticated request can be the one that discovers the device is no
-  // longer linked; wire that up before the first one goes out.
-  setAuthFailureHandler(handleAuthFailure);
-
-  // Before anything reads storage: a locked device has no session and no
-  // readable history there on purpose, and the UI has to show the lock screen
-  // rather than the landing page ("no session" would look like a fresh install).
-  await loadLockState();
-  if (locked.value) {
-    ready.value = true;
-    return;
-  }
-
-  await loadSession();
-  if (session.value) {
-    await startSession();
-  } else {
-    await resumeLinking();
-  }
-  await consumeSharedContent();
-}
-
 registerServiceWorker();
 
 const root = document.getElementById("app");
 if (root) {
-  render(<App />, root);
+  void Promise.all([import("./bootstrap"), import("./ui/App")])
+    .then(async ([{ bootstrap }, { App }]) => {
+      // Keep the prerendered marketing page visible while IndexedDB and the
+      // session are loading. This gives crawlers useful HTML and avoids a
+      // blank spinner for people arriving on the public page.
+      await bootstrap();
+      render(<App />, root);
+    })
+    .catch((error: unknown) => {
+      // The static landing page remains usable if runtime bootstrapping fails.
+      console.error("Could not start file-sharer", error);
+    });
 }
-
-void bootstrap();

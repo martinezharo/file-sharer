@@ -36,6 +36,6 @@
     <circle cx="206" cy="14" r="6" fill="#3dd68c"/>
     <text x="224" y="21">FILES UP TO 50 MB</text>
     <circle cx="556" cy="14" r="6" fill="#3dd68c"/>
-    <text x="574" y="21">WORKS OFFLINE</text>
+    <text x="574" y="21">OFFLINE-READY</text>
   </g>
 </svg>

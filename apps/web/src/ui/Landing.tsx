@@ -12,11 +12,11 @@ import {
   WifiOff,
   X,
 } from "lucide-preact";
+import type { JSX, RefObject } from "preact";
 import { createPortal } from "preact/compat";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { JSX, RefObject } from "preact";
-import { cx, IconButton, Logo, Toasts } from "./components";
 import { OnboardingCard } from "./Onboarding";
+import { IconButton, Logo, Toasts, cx } from "./components";
 
 interface Feature {
   icon: typeof Lock;
@@ -27,51 +27,51 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: Lock,
-    title: "End-to-end encrypted",
-    body: "Every message and file is encrypted with AES-256 on your device before it is ever sent over the network.",
+    title: "Encrypted before upload",
+    body: "Messages and files are encrypted on your device before they leave it. The server can deliver the ciphertext, but cannot decrypt your content.",
   },
   {
     icon: EyeOff,
-    title: "Zero-knowledge server",
-    body: "The server stores only ciphertext, public keys and hashes. Your plaintext and keys never leave your devices.",
+    title: "No account required",
+    body: "No email or server password. Optionally protect this device with a passphrase, PIN, or passkey.",
   },
   {
     icon: MonitorSmartphone,
-    title: "All of your devices",
-    body: "Keep your phone, laptop and tablet in sync through one shared, private space that only you control.",
+    title: "One private space, every device",
+    body: "Keep your phone, laptop, and tablet connected through one private space you control.",
   },
   {
     icon: QrCode,
     title: "Pair with a QR code",
-    body: "Add a device by scanning a code. Keys are exchanged out-of-band, so there is no man-in-the-middle.",
+    body: "Link a new device through an out-of-band QR flow that securely transfers access to it.",
   },
   {
     icon: FileUp,
     title: "Files up to 50 MB",
-    body: "Send documents, images or archives. They are encrypted, delivered, then deleted from the server automatically.",
+    body: "Send documents, images, or archives. Delivered content is removed from the server automatically.",
   },
   {
     icon: WifiOff,
-    title: "Installable & offline",
-    body: "Install it as a progressive web app. Your history lives locally and stays available, even without a connection.",
+    title: "Local history & offline queue",
+    body: "Your history stays on your devices. Messages and selected files can wait locally, but uploading and delivery require a connection.",
   },
 ];
 
 const STEPS: Feature[] = [
   {
     icon: Plus,
-    title: "Create a space",
-    body: "Spin up an encrypted space on your first device in a single tap. No sign-up, no email.",
+    title: "Create a private space",
+    body: "Start on any device without an account, email, or server password.",
   },
   {
     icon: Link2,
     title: "Link your devices",
-    body: "Scan a QR code to securely add your phone, laptop or tablet to the same private space.",
+    body: "Scan a QR code to add your phone, laptop, or tablet to the same private space.",
   },
   {
     icon: Send,
-    title: "Share instantly",
-    body: "Send text and files that sync end-to-end encrypted across every device you have linked.",
+    title: "Send without waiting",
+    body: "Send text and files when connected; if a recipient is offline, encrypted content waits for it.",
   },
 ];
 
@@ -82,28 +82,32 @@ interface Faq {
 
 const FAQS: Faq[] = [
   {
-    q: "Is file-sharer really end-to-end encrypted?",
-    a: "Yes. A symmetric AES-256 group key is created on your first device and shared only with devices you link. Messages and files are encrypted before they leave your device, and the server only ever handles ciphertext.",
+    q: "Is file-sharer end-to-end encrypted?",
+    a: "Yes. Messages, files, and file metadata are encrypted on your device with AES-GCM before upload. The server receives ciphertext and cannot decrypt the content.",
   },
   {
-    q: "Do I need an account or email?",
-    a: "No. There are no accounts, no email and no passwords. You create a space on one device and link your other devices to it with a QR code.",
+    q: "Do I need an account?",
+    a: "No account, email, or server password is required. You can optionally protect this device with a passphrase, PIN, or passkey.",
   },
   {
-    q: "Can you read my messages or files?",
-    a: "No. The server is zero-knowledge by design: it stores only ciphertext, public keys and SHA-256 hashes. Without the keys that live on your devices, the data is unreadable.",
+    q: "Can the server read my messages or files?",
+    a: "It cannot decrypt your content. It does receive ciphertext and the protocol metadata needed to authenticate requests and deliver messages.",
   },
   {
     q: "What is the maximum file size?",
-    a: "You can share files up to 50 MB. Files are encrypted on your device, delivered to your other devices, then removed from the server automatically.",
+    a: "You can share files up to 50 MB. Delivered content is purged when active recipients acknowledge it; anything left over is cleaned up within 24 hours.",
   },
   {
     q: "Does it work offline?",
-    a: "Yes. file-sharer is a progressive web app you can install. Your message history is stored locally, so it remains available even when you are offline.",
+    a: "Partly. The installed PWA keeps local history available and can save outgoing messages or selected files locally, but nothing is uploaded or delivered until you reconnect.",
   },
   {
     q: "How do I add another device?",
-    a: "On the new device choose to link to an existing space to get a QR code, then scan it from a device already in the space. The encryption keys are exchanged securely during pairing.",
+    a: "On the new device, choose to link an existing space and show its QR code. Scan it from a linked device; the shared group key is transferred in an encrypted pairing package.",
+  },
+  {
+    q: "Where are the encryption keys kept?",
+    a: "Private device keys are generated locally and never sent to the server. The shared group key is transferred only to linked devices through encrypted pairing and key-rotation packages. An optional encrypted recovery file can carry a copy for restoring a device.",
   },
 ];
 
@@ -174,7 +178,10 @@ export function Landing(): JSX.Element {
     const sy = last.height / first.height;
     card.style.transformOrigin = "top left";
     const anim = card.animate(
-      [{ transform: "none" }, { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.4 }],
+      [
+        { transform: "none" },
+        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.4 },
+      ],
       { duration: 320, easing: CLOSE_EASE },
     );
     anim.onfinish = finishClose;
@@ -270,7 +277,10 @@ export function Landing(): JSX.Element {
   );
 }
 
-function SiteHeader({ scrolled, onCreate }: { scrolled: boolean; onCreate: () => void }): JSX.Element {
+function SiteHeader({
+  scrolled,
+  onCreate,
+}: { scrolled: boolean; onCreate: () => void }): JSX.Element {
   return (
     <header
       class={cx(
@@ -285,13 +295,19 @@ function SiteHeader({ scrolled, onCreate }: { scrolled: boolean; onCreate: () =>
           <Logo />
         </a>
         <nav class="flex items-center gap-1 text-[13.5px] font-medium text-subtle max-md:hidden">
-          <a class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink" href="#features">
+          <a
+            class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink"
+            href="#features"
+          >
             Features
           </a>
           <a class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink" href="#how">
             How it works
           </a>
-          <a class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink" href="#security">
+          <a
+            class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink"
+            href="#security"
+          >
             Security
           </a>
           <a class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink" href="#faq">
@@ -306,7 +322,7 @@ function SiteHeader({ scrolled, onCreate }: { scrolled: boolean; onCreate: () =>
             scrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1 opacity-0",
           )}
         >
-          Create a space
+          Create space
           <ArrowRight />
         </button>
       </div>
@@ -332,13 +348,14 @@ function Hero({
             End-to-end encrypted
           </span>
           <h1 class="mt-5 text-[clamp(2.25rem,5vw,3.5rem)] font-semibold leading-[1.04] tracking-[-0.035em]">
-            Share files and text<br class="max-md:hidden" /> between your own devices,{" "}
+            Send files and text
+            <br class="max-md:hidden" /> between your own devices —{" "}
             <span class="text-accent">privately</span>.
           </h1>
           <p class="mt-5 max-w-xl text-[16.5px] leading-relaxed text-subtle max-md:mx-auto">
-            file-sharer is an end-to-end encrypted space for your phone, laptop and tablet. The
-            server only ever sees ciphertext — your messages and files never leave your devices
-            unencrypted.
+            file-sharer is a private, end-to-end encrypted space for your phone, laptop, and tablet.
+            No account required: your content is encrypted on your device before upload, and the
+            server never receives it in readable form.
           </p>
           <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center">
             <button
@@ -346,7 +363,7 @@ function Hero({
               onClick={onCreate}
               class="inline-flex h-12 items-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]"
             >
-              Create a space
+              Create your private space
               <ArrowRight />
             </button>
             <a
@@ -361,10 +378,10 @@ function Hero({
               <span class="size-1.5 rounded-full bg-success" /> No account
             </li>
             <li class="flex items-center gap-1.5">
-              <span class="size-1.5 rounded-full bg-success" /> Files up to 50 MB
+              <span class="size-1.5 rounded-full bg-success" /> Up to 50 MB per file
             </li>
             <li class="flex items-center gap-1.5">
-              <span class="size-1.5 rounded-full bg-success" /> Works offline
+              <span class="size-1.5 rounded-full bg-success" /> Offline-ready
             </li>
           </ul>
         </div>
@@ -405,8 +422,8 @@ function Features(): JSX.Element {
       <div class="mx-auto max-w-6xl">
         <SectionHeading
           kicker="Why file-sharer"
-          title="Private by design, not by promise"
-          subtitle="Encryption happens on your devices. There is nothing for us — or anyone else — to read on the server."
+          title="Your content stays yours"
+          subtitle="Messages and files are encrypted on your devices before they leave them. The server can deliver ciphertext, but cannot decrypt it."
         />
         <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ icon: Icon, title, body }) => (
@@ -434,7 +451,10 @@ function HowItWorks(): JSX.Element {
         <SectionHeading kicker="How it works" title="Up and running in three steps" />
         <ol class="mt-12 grid gap-4 md:grid-cols-3">
           {STEPS.map(({ icon: Icon, title, body }, i) => (
-            <li key={title} class="relative rounded-xl2 bg-surface p-6 shadow-soft dark:bg-surface-2">
+            <li
+              key={title}
+              class="relative rounded-xl2 bg-surface p-6 shadow-soft dark:bg-surface-2"
+            >
               <div class="flex items-center gap-3">
                 <span class="grid size-10 place-items-center rounded-[12px] bg-accent text-on-accent [&_svg]:size-[20px]">
                   <Icon />
@@ -456,20 +476,20 @@ function HowItWorks(): JSX.Element {
 function Security({ onCreate }: { onCreate: () => void }): JSX.Element {
   const points = [
     {
-      term: "Group key (AES-GCM 256)",
-      desc: "A single symmetric key encrypts every message, file and file-metadata blob. It is created once and shared only with devices you link.",
+      term: "Content encryption (AES-GCM 256)",
+      desc: "A local group key encrypts messages, files, and file metadata. Keys rotate when membership changes.",
     },
     {
-      term: "Device keys (ECDH P-256)",
-      desc: "Each device holds a non-extractable private key. It never leaves the device and cannot be exported, even by the app.",
+      term: "Device identity (ECDH P-256)",
+      desc: "Each device creates its own P-256 key pair. Private keys are never sent to the server; an optional encrypted recovery file can restore a device.",
     },
     {
-      term: "Secure pairing (ECIES)",
-      desc: "Linking wraps the keys with an ephemeral key tied to a scanned QR code, so there is no man-in-the-middle during pairing.",
+      term: "Encrypted device pairing",
+      desc: "A QR code binds the new device's public key to the pairing. The shared group key is sent only inside an encrypted package.",
     },
     {
-      term: "Ephemeral by default",
-      desc: "Once a message is delivered to your devices it is deleted from the server, and anything left over is reaped within 24 hours.",
+      term: "Temporary server storage",
+      desc: "Delivered messages and files are purged when active recipients acknowledge them; a scheduled cleanup removes anything older than 24 hours.",
     },
   ];
 
@@ -482,19 +502,19 @@ function Security({ onCreate }: { onCreate: () => void }): JSX.Element {
               Security model
             </div>
             <h2 class="mt-3 text-[clamp(1.6rem,3.5vw,2.25rem)] font-semibold tracking-[-0.03em]">
-              Built so we can never see your data
+              Built so the server cannot decrypt your content
             </h2>
             <p class="mt-4 text-[15px] leading-relaxed text-muted">
-              The architecture is zero-knowledge from the ground up. Plaintext, the group key and
-              the raw auth token are never sent to the server — only ciphertext, public keys and
-              hashes ever cross the wire.
+              Messages, files, and file metadata are encrypted on your devices. The service receives
+              ciphertext, public keys, authentication data, and delivery metadata — but not readable
+              content or private device keys.
             </p>
             <button
               type="button"
               onClick={onCreate}
               class="mt-6 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent transition-[gap] hover:gap-3 [&_svg]:size-[17px]"
             >
-              Start an encrypted space
+              Create your private space
               <ArrowRight />
             </button>
           </div>
@@ -547,13 +567,29 @@ function SiteFooter(): JSX.Element {
       <div class="mx-auto flex max-w-6xl flex-col items-center gap-6 text-center">
         <Logo />
         <p class="max-w-md text-[14px] leading-relaxed text-muted">
-          A tiny, end-to-end encrypted progressive web app to share text and files between your own
-          devices.
+          A private, end-to-end encrypted space for text and files across your devices.
         </p>
         <div class="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted [&_svg]:size-3.5">
           <ShieldCheck class="text-accent" />
-          Zero-knowledge encryption
+          End-to-end encryption
         </div>
+        <nav
+          aria-label="Resources"
+          class="flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-muted"
+        >
+          <a class="transition hover:text-ink" href="/how-it-works/">
+            How it works
+          </a>
+          <a class="transition hover:text-ink" href="/security/">
+            Security
+          </a>
+          <a class="transition hover:text-ink" href="/privacy/">
+            Privacy
+          </a>
+          <a class="transition hover:text-ink" href="/install/">
+            Install
+          </a>
+        </nav>
         <p class="text-[12.5px] text-muted">© {new Date().getFullYear()} file-sharer</p>
       </div>
     </footer>

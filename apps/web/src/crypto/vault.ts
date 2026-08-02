@@ -76,8 +76,8 @@ export interface VaultSecrets {
   keyring: SerializedKeyring;
   /**
    * Null only for a device linked before recovery export existed, whose keys
-   * were generated non-extractable and therefore cannot be sealed or exported.
-   * Those keys stay where the browser put them; see `state/lock.ts`.
+   * cannot be sealed or exported. Those keys stay where the browser put them;
+   * see `state/lock.ts`.
    */
   deviceKeyPair: SerializedKeyPair | null;
   signingKeyPair: SerializedKeyPair | null;
