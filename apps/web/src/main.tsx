@@ -1,9 +1,11 @@
 import { registerSW } from "virtual:pwa-register";
 import { render } from "preact";
+import { bootstrap } from "./bootstrap";
 import "@fontsource-variable/bricolage-grotesque/wght.css";
 import "@fontsource-variable/hanken-grotesk/wght.css";
 import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./styles.css";
+import { App } from "./ui/App";
 
 /**
  * Register the service worker with `autoUpdate`: a new deploy is detected,
@@ -30,16 +32,12 @@ registerServiceWorker();
 
 const root = document.getElementById("app");
 if (root) {
-  void Promise.all([import("./bootstrap"), import("./ui/App")])
-    .then(async ([{ bootstrap }, { App }]) => {
-      // Keep the prerendered marketing page visible while IndexedDB and the
-      // session are loading. This gives crawlers useful HTML and avoids a
-      // blank spinner for people arriving on the public page.
-      await bootstrap();
-      render(<App />, root);
-    })
-    .catch((error: unknown) => {
-      // The static landing page remains usable if runtime bootstrapping fails.
-      console.error("Could not start file-sharer", error);
-    });
+  // Replace the prerendered landing page before reading IndexedDB. The app's
+  // loading state prevents a returning session from briefly seeing marketing
+  // content, while the prerender remains available to crawlers and no-JS
+  // clients.
+  render(<App />, root);
+  void bootstrap().catch((error: unknown) => {
+    console.error("Could not start file-sharer", error);
+  });
 }
