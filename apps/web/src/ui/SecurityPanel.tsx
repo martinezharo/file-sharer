@@ -195,22 +195,28 @@ function Row({
   action: JSX.Element;
 }): JSX.Element {
   return (
-    <div class="flex items-start gap-3.5 rounded-card bg-surface px-[15px] py-[13px] shadow-soft dark:bg-surface-2">
-      <span
-        class={cx(
-          "mt-0.5 grid size-[38px] flex-none place-items-center rounded-[10px] [&_svg]:size-[19px]",
-          tone === "ok"
-            ? "bg-success/12 text-success"
-            : "bg-amber-500/12 text-amber-600 dark:text-amber-300",
-        )}
-      >
-        {icon}
-      </span>
-      <div class="min-w-0 flex-1">
-        <div class="text-[14.5px] font-medium">{title}</div>
-        <p class="mt-0.5 text-[12.5px] leading-5 text-muted">{body}</p>
+    // On a phone the action moves under the copy: side by side it left the body
+    // wrapping in a third of the width with dead space beneath the button.
+    <div class="surface-card flex items-start gap-3.5 rounded-card px-[15px] py-[13px] max-sm:flex-col max-sm:gap-3">
+      <div class="flex min-w-0 flex-1 items-start gap-3.5 max-sm:w-full">
+        <span
+          class={cx(
+            "mt-0.5 grid size-[38px] flex-none place-items-center rounded-[10px] [&_svg]:size-[19px]",
+            tone === "ok"
+              ? "bg-success/12 text-success"
+              : "bg-amber-500/12 text-amber-600 dark:text-amber-300",
+          )}
+        >
+          {icon}
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="text-[14.5px] font-medium">{title}</div>
+          <p class="mt-0.5 text-[12.5px] leading-5 text-muted">{body}</p>
+        </div>
       </div>
-      <div class="flex-none pt-1">{action}</div>
+      <div class="flex flex-none gap-2 pt-1 max-sm:w-full max-sm:pl-[52px] max-sm:pt-0 [&>*]:max-sm:flex-1 [&_button]:max-sm:w-full">
+        {action}
+      </div>
     </div>
   );
 }

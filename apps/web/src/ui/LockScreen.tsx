@@ -37,8 +37,10 @@ export function LockScreen({ onUnlocked }: { onUnlocked: () => void }): JSX.Elem
   }, [method]);
 
   return (
-    <div class="bg-grad grid h-full place-items-center p-6">
-      <div class="flex w-full max-w-[380px] flex-col items-center gap-6 rounded-xl3 bg-surface p-7 text-center shadow-float max-md:p-6">
+    // min-h, not h: on a short screen (a phone in landscape, a small window)
+    // `h-full` centring clipped the panel with nothing to scroll.
+    <div class="bg-grad grid min-h-full place-items-center p-6">
+      <div class="surface-card flex w-full max-w-[380px] flex-col items-center gap-6 rounded-xl3 p-7 text-center !shadow-float max-md:p-6">
         <Logo size="lg" />
         <div>
           <h1 class="text-[21px] tracking-[-0.02em]">This device is locked</h1>

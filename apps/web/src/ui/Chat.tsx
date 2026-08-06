@@ -127,14 +127,20 @@ export function Chat(): JSX.Element {
         </div>
       )}
       <div class="flex-1 overflow-y-auto px-6 pb-2 pt-[22px] max-md:px-[14px] max-md:pt-4">
-        <div class="mx-auto flex w-full max-w-[760px] flex-col gap-[3px]">
+        {/* A short conversation hangs from the composer rather than floating at
+            the top of an empty column — the thread grows upwards, like every
+            other messaging app. */}
+        <div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-[3px]">
           {list.length === 0 && <EmptyState />}
-          {list.map((message) => (
+          {list.map((message, index) => (
             <MessageBubble
               key={message.id}
               message={message}
               mine={message.senderDeviceId === myId}
               deviceName={deviceNames.get(message.senderDeviceId)}
+              // The name answers "who sent this?", so it is only worth repeating
+              // when the answer changes.
+              showSender={list[index - 1]?.senderDeviceId !== message.senderDeviceId}
             />
           ))}
           <div ref={bottomRef} />
@@ -148,7 +154,7 @@ export function Chat(): JSX.Element {
 function EmptyState(): JSX.Element {
   return (
     <div class="m-auto flex max-w-[360px] flex-col items-center gap-3.5 px-5 py-10 text-center">
-      <div class="grid size-14 place-items-center rounded-xl2 bg-surface text-accent shadow-pop dark:bg-surface-2 [&_svg]:size-[26px]">
+      <div class="surface-card grid size-14 place-items-center rounded-xl2 text-accent [&_svg]:size-[26px]">
         <Lock />
       </div>
       <div class="font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-accent">
@@ -172,13 +178,16 @@ function MessageBubble({
   message,
   mine,
   deviceName,
+  showSender,
 }: {
   message: LocalMessage;
   mine: boolean;
   deviceName?: string;
+  showSender: boolean;
 }): JSX.Element {
-  const displayDeviceName =
-    message.senderDeviceName ?? deviceName ?? (mine ? session.value?.deviceName : undefined);
+  const displayDeviceName = showSender
+    ? (message.senderDeviceName ?? deviceName ?? (mine ? session.value?.deviceName : undefined))
+    : undefined;
 
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const pressTimer = useRef<number | null>(null);
@@ -241,17 +250,25 @@ function MessageBubble({
 
   return (
     <div
-      class={cx("group mt-[9px] flex items-center gap-1", mine ? "justify-end" : "justify-start")}
+      class={cx(
+        "group flex items-center gap-1",
+        // Bubbles from one device in a row read as one turn: tight inside the
+        // run, a clear step between runs.
+        showSender ? "mt-[9px]" : "mt-0",
+        mine ? "justify-end" : "justify-start",
+      )}
     >
       {mine && <MenuTrigger onOpen={openFromTrigger} />}
       <div
         class={cx(
-          "msg-bubble max-w-[min(80%,540px)] rounded-card text-[14.5px] leading-normal shadow-soft transition-shadow max-md:max-w-[86%]",
+          "msg-bubble max-w-[min(80%,540px)] rounded-card text-[14.5px] leading-normal transition-shadow max-md:max-w-[86%]",
           message.file ? "p-[7px]" : "px-[13px] py-[9px]",
           mine
-            ? "rounded-br-[5px] bg-accent text-on-accent"
-            : "rounded-bl-[5px] bg-surface text-ink dark:bg-surface-2",
-          menu && "ring-2 ring-accent/50",
+            ? "rounded-br-[5px] bg-accent text-on-accent shadow-soft"
+            : "surface-card rounded-bl-[5px] text-ink",
+          // An accent ring is invisible on an accent bubble, so the highlight
+          // has to come from whichever side the bubble is not.
+          menu && (mine ? "ring-2 ring-white/70" : "ring-2 ring-accent/60"),
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -581,7 +598,7 @@ function Composer(): JSX.Element {
 
   return (
     <div class="flex-none px-6 pb-[calc(16px+env(safe-area-inset-bottom))] pt-2 max-md:px-[14px] max-md:pb-[calc(14px+env(safe-area-inset-bottom))]">
-      <div class="mx-auto flex max-w-[760px] items-end gap-1.5 rounded-[24px] bg-surface px-2 py-2 shadow-pop dark:bg-surface-2">
+      <div class="surface-card mx-auto flex max-w-[760px] items-end gap-1.5 rounded-[24px] px-2 py-2 !shadow-pop">
         <input ref={fileRef} type="file" multiple hidden onChange={onPickFile} />
         <button
           type="button"

@@ -91,7 +91,7 @@ function StartupError({ message }: { message: string }): JSX.Element {
     <div class="bg-grad grid min-h-full place-items-center p-6">
       <section
         role="alert"
-        class="w-full max-w-[480px] rounded-xl3 bg-surface p-7 text-center shadow-float max-md:p-6"
+        class="surface-card w-full max-w-[480px] rounded-xl3 p-7 text-center !shadow-float max-md:p-6"
       >
         <div class="mx-auto grid size-12 place-items-center rounded-[14px] bg-danger-soft text-danger [&_svg]:size-6">
           <AlertTriangle />
@@ -128,8 +128,10 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
     <div class="bg-grad flex h-full">
       {/* Desktop sidebar: the nav lists the places that hold content, and the
           actions on the space itself hang off the name they act on. */}
-      <aside class="hidden w-[248px] flex-none flex-col gap-1 border-r border-line bg-[color-mix(in_srgb,var(--c-surface)_55%,transparent)] p-[14px] pt-[18px] backdrop-blur-xl md:flex">
-        <div class="flex items-center gap-0.5 pb-3.5 pt-0.5">
+      <aside class="hidden w-[248px] flex-none flex-col border-r border-line bg-[color-mix(in_srgb,var(--c-surface)_55%,transparent)] pb-[14px] backdrop-blur-xl md:flex">
+        {/* Same height and same rule as the view header on the right, so the two
+            read as one band across the top rather than two headers 15px apart. */}
+        <div class="flex h-[60px] flex-none items-center gap-0.5 border-b border-line px-[10px]">
           <BackLink to={APP_PATH} label="All spaces" />
           {/* The name is its own rename shortcut: the pencil is only a hover
               hint, so the menu beside it stays the discoverable path. */}
@@ -151,7 +153,7 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
           />
         </div>
 
-        <nav class="flex flex-col gap-[3px]">
+        <nav class="flex flex-col gap-[3px] px-[14px] pt-[14px]">
           {SECTIONS.map(({ id, label, icon: Icon }) => (
             <NavItem key={id} active={section === id} href={spacePath(spaceId, id)}>
               <Icon />
@@ -160,7 +162,7 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
           ))}
         </nav>
 
-        <div class="mt-auto flex items-center gap-2.5 px-[11px] py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
+        <div class="mt-auto flex items-center gap-2.5 px-[25px] pt-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
           <span
             class={cx(
               "size-2 flex-none rounded-full",

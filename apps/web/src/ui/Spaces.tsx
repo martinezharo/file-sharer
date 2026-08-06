@@ -53,7 +53,9 @@ export function Spaces(): JSX.Element {
           </>
         ) : (
           <>
-            <div class="flex items-end justify-between gap-4">
+            {/* The button drops below the copy on a phone instead of squeezing
+                it into a half-width column beside itself. */}
+            <div class="flex items-end justify-between gap-4 max-sm:flex-col max-sm:items-stretch max-sm:gap-5">
               <div>
                 <h1 class="text-[26px] font-semibold tracking-[-0.03em]">Your spaces</h1>
                 <p class="mt-1.5 text-[14px] text-muted">
@@ -62,7 +64,11 @@ export function Spaces(): JSX.Element {
                     : "Everything in a space stays encrypted between your devices."}
                 </p>
               </div>
-              <Button class="!w-auto flex-none" variant="primary" onClick={() => setCreating(true)}>
+              <Button
+                class="flex-none sm:!w-auto"
+                variant="primary"
+                onClick={() => setCreating(true)}
+              >
                 <Plus />
                 New space
               </Button>
@@ -122,7 +128,7 @@ function SpaceCard({ space }: { space: SpaceRecord }): JSX.Element {
       <a
         href={path}
         onClick={(event) => followLink(event as MouseEvent, path)}
-        class="flex items-center gap-4 rounded-xl2 bg-surface p-4 shadow-soft transition hover:shadow-pop dark:bg-surface-2"
+        class="surface-card flex items-center gap-4 rounded-xl2 p-4 transition hover:shadow-pop"
       >
         <span class="grid size-11 flex-none place-items-center rounded-[12px] bg-accent-soft text-accent [&_svg]:size-[21px]">
           <MessagesSquare />

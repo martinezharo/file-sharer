@@ -85,7 +85,7 @@ export function DropZone(): JSX.Element | null {
       class="animate-fade-in pointer-events-none fixed inset-0 z-[60] grid place-items-center bg-[color-mix(in_srgb,#0a0a0c_45%,transparent)] p-6 backdrop-blur-[3px]"
       aria-hidden="true"
     >
-      <div class="flex flex-col items-center gap-3.5 rounded-xl2 border-2 border-dashed border-accent bg-surface px-9 py-8 text-center shadow-pop dark:bg-surface-2">
+      <div class="surface-card flex flex-col items-center gap-3.5 rounded-xl2 border-2 border-dashed border-accent px-9 py-8 text-center !shadow-pop">
         <div class="grid size-14 place-items-center rounded-xl2 bg-accent-soft text-accent [&_svg]:size-[26px]">
           <Upload />
         </div>

@@ -230,14 +230,16 @@ function Hero(): JSX.Element {
             No account required: your content is encrypted on your device before upload, and the
             server never receives it in readable form.
           </p>
-          <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center">
-            <OpenAppLink class="inline-flex h-12 items-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]">
+          {/* Stacked on a phone, the two buttons match widths instead of
+              centring two different-length pills under each other. */}
+          <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center max-sm:flex-col max-sm:items-stretch">
+            <OpenAppLink class="inline-flex h-12 items-center justify-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]">
               Create your private space
               <ArrowRight />
             </OpenAppLink>
             <a
               href="#how"
-              class="inline-flex h-12 items-center rounded-card bg-surface px-5 text-[15px] font-semibold text-ink shadow-soft transition hover:bg-surface-3 dark:bg-surface-2"
+              class="surface-card inline-flex h-12 items-center justify-center rounded-card px-5 text-[15px] font-semibold text-ink transition hover:bg-surface-3"
             >
               See how it works
             </a>
@@ -272,7 +274,7 @@ function ChatPreview(): JSX.Element {
   return (
     <div
       aria-hidden="true"
-      class="w-full overflow-hidden rounded-xl3 bg-surface shadow-float max-md:rounded-xl2 dark:bg-surface-2"
+      class="surface-card w-full overflow-hidden rounded-xl3 !shadow-float max-md:rounded-xl2"
     >
       <div class="flex items-center gap-2.5 border-b border-line px-4 py-3">
         <span class="grid size-8 flex-none place-items-center rounded-[10px] bg-accent-soft text-accent [&_svg]:size-[17px]">
@@ -363,10 +365,7 @@ function Features(): JSX.Element {
         />
         <div class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ icon: Icon, title, body }) => (
-            <article
-              key={title}
-              class="rounded-xl2 bg-surface p-6 shadow-soft transition hover:shadow-pop dark:bg-surface-2"
-            >
+            <article key={title} class="surface-card rounded-xl2 p-6 transition hover:shadow-pop">
               <div class="grid size-11 place-items-center rounded-[12px] bg-accent-soft text-accent [&_svg]:size-[22px]">
                 <Icon />
               </div>
@@ -387,10 +386,7 @@ function HowItWorks(): JSX.Element {
         <SectionHeading kicker="How it works" title="Up and running in three steps" />
         <ol class="mt-12 grid gap-4 md:grid-cols-3">
           {STEPS.map(({ icon: Icon, title, body }, i) => (
-            <li
-              key={title}
-              class="relative rounded-xl2 bg-surface p-6 shadow-soft dark:bg-surface-2"
-            >
+            <li key={title} class="surface-card relative rounded-xl2 p-6">
               <div class="flex items-center gap-3">
                 <span class="grid size-10 place-items-center rounded-[12px] bg-accent text-on-accent [&_svg]:size-[20px]">
                   <Icon />
@@ -431,7 +427,7 @@ function Security(): JSX.Element {
 
   return (
     <section id="security" class="scroll-mt-20 px-6 py-16 max-md:px-4 md:py-24">
-      <div class="mx-auto max-w-5xl overflow-hidden rounded-xl3 bg-surface p-8 shadow-float dark:bg-surface-2 md:p-12">
+      <div class="surface-card mx-auto max-w-5xl overflow-hidden rounded-xl3 p-8 !shadow-float md:p-12">
         <div class="grid gap-10 md:grid-cols-[0.9fr_1.1fr] md:items-center">
           <div>
             <div class="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
@@ -474,10 +470,7 @@ function Faq(): JSX.Element {
         <SectionHeading kicker="FAQ" title="Questions, answered" />
         <div class="mt-10 flex flex-col gap-3">
           {FAQS.map(({ q, a }) => (
-            <details
-              key={q}
-              class="group rounded-xl2 bg-surface px-5 shadow-soft transition open:shadow-pop dark:bg-surface-2"
-            >
+            <details key={q} class="surface-card group rounded-xl2 px-5 transition open:shadow-pop">
               <summary class="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-[15.5px] font-semibold [&::-webkit-details-marker]:hidden">
                 {q}
                 <span class="grid size-7 flex-none place-items-center rounded-full bg-surface-3 text-muted transition group-open:rotate-45 group-open:bg-accent-soft group-open:text-accent">

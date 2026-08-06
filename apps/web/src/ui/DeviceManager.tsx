@@ -1,5 +1,6 @@
 import type { DeviceRole } from "@file-sharer/shared";
 import {
+  AlertCircle,
   ClipboardPaste,
   Crown,
   KeyRound,
@@ -93,13 +94,15 @@ export function DeviceManager(): JSX.Element {
   return (
     <div class="min-h-0 flex-1 overflow-y-auto p-6 max-md:p-[14px]">
       <div class="mx-auto flex max-w-[640px] flex-col gap-[18px]">
-        <div class="flex items-start justify-between gap-4">
+        {/* The button drops below the copy on a phone instead of squeezing it
+            into a half-width column beside itself. */}
+        <div class="flex items-start justify-between gap-4 max-sm:flex-col max-sm:items-stretch max-sm:gap-4">
           <div>
             <div class="mb-1 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-accent">
               Workspace
             </div>
             <h2 class="text-[18px] font-semibold">Linked devices</h2>
-            <p class="max-w-[420px] text-[12.5px] leading-5 text-muted">
+            <p class="mt-1 text-[12.5px] leading-5 text-muted">
               Control which of your devices can connect and manage this encrypted space.
             </p>
             {!loading && (
@@ -110,7 +113,12 @@ export function DeviceManager(): JSX.Element {
             )}
           </div>
           {canAdminister && (
-            <Button class="flex-none" variant="primary" size="sm" onClick={() => setAdding(true)}>
+            <Button
+              class="flex-none max-sm:!h-[42px] max-sm:!w-full max-sm:!text-[14.5px]"
+              variant="primary"
+              size="sm"
+              onClick={() => setAdding(true)}
+            >
               <Plus aria-hidden="true" />
               Add device
             </Button>
@@ -134,7 +142,7 @@ export function DeviceManager(): JSX.Element {
               <div
                 key={device.id}
                 class={cx(
-                  "flex items-center gap-3.5 rounded-card bg-surface px-[15px] py-[13px] shadow-soft transition hover:shadow-pop dark:bg-surface-2",
+                  "surface-card flex items-center gap-3.5 rounded-card px-[15px] py-[13px] transition hover:shadow-pop",
                   device.id === myId && "ring-1 ring-inset ring-accent/35",
                 )}
               >
@@ -391,7 +399,14 @@ function AddDeviceModal({
       {tab === "scan" && (
         <div class="flex flex-col items-center gap-3">
           {cameraError ? (
-            <p class="text-[13px] text-danger">{cameraError}. Use “Paste code” instead.</p>
+            // Framed like every other error in the app, instead of a bare line
+            // of red text floating in the dialog.
+            <div class="flex w-full gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
+              <AlertCircle class="mt-0.5 size-[19px] flex-none" aria-hidden="true" />
+              <p class="text-[13px] font-medium leading-5">
+                {cameraError}. Use “Paste code” instead.
+              </p>
+            </div>
           ) : (
             <video
               ref={videoRef}
