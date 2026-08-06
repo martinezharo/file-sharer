@@ -50,7 +50,7 @@ export function OnboardingCard(): JSX.Element {
   return (
     <div
       id="get-started"
-      class="w-full scroll-mt-24 rounded-xl3 bg-surface p-7 shadow-float max-md:rounded-xl2 max-md:p-6"
+      class="surface-card w-full scroll-mt-24 rounded-xl3 p-7 !shadow-float max-md:rounded-xl2 max-md:p-6"
     >
       {mode === "choose" && (
         <>

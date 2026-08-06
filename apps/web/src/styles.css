@@ -234,6 +234,16 @@
     display: none;
   }
 
+  /* Every raised surface that sits on the page background: cards, list rows,
+     bubbles, the composer. Kept as one class because the *dark* half of it is
+     the part that is easy to forget — there, the drop shadow is invisible
+     against a near-black background, so a hairline is what separates a card
+     from the page at all. Radius stays with the caller: the elevation is
+     shared, the shape is not. */
+  .surface-card {
+    @apply bg-surface shadow-soft dark:bg-surface-2 dark:ring-1 dark:ring-inset dark:ring-line;
+  }
+
   .field-input {
     @apply w-full rounded-card border border-line-strong bg-surface px-3.5 py-3 text-[14.5px] text-ink transition;
   }

@@ -210,10 +210,10 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        class="animate-modal-in w-full max-w-[440px] overflow-hidden rounded-xl3 bg-elevated shadow-float outline-none"
+        class="animate-modal-in flex max-h-[calc(100dvh-2rem)] w-full max-w-[440px] flex-col overflow-hidden rounded-xl3 bg-elevated shadow-float outline-none"
         onClick={(e) => e.stopPropagation()}
       >
-        <header class="flex items-center justify-between py-4 pl-[22px] pr-[18px]">
+        <header class="flex flex-none items-center justify-between py-4 pl-[22px] pr-[18px]">
           <h2 id={titleId} class="text-[17px] font-semibold">
             {title}
           </h2>
@@ -223,7 +223,12 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
             </IconButton>
           )}
         </header>
-        <div class="flex flex-col gap-4 px-[22px] pb-[22px] pt-1">{children}</div>
+        {/* The body scrolls rather than the panel growing past the viewport: a
+            tall dialog on a short screen used to clip its own actions off the
+            bottom with no way to reach them. */}
+        <div class="flex min-h-0 flex-col gap-4 overflow-y-auto px-[22px] pb-[22px] pt-1">
+          {children}
+        </div>
       </div>
     </div>
   );
