@@ -1,4 +1,4 @@
-import { type DBSchema, type IDBPDatabase, openDB } from "idb";
+import { type DBSchema, type IDBPDatabase, deleteDB, openDB } from "idb";
 import type { LocalMessage } from "../types";
 import {
   type Sealed,
@@ -9,6 +9,7 @@ import {
   sealBlob,
   sealJson,
 } from "./atrest";
+import { LEGACY_SPACE_ID } from "./spaces";
 
 /**
  * A message row. When an at-rest lock is set the payload is sealed and only the
@@ -40,8 +41,22 @@ interface FileSharerDB extends DBSchema {
   files: { key: string; value: StoredFile };
 }
 
+/**
+ * One database per space.
+ *
+ * Spaces share nothing: separate sessions, separate keys, separate history —
+ * so they get separate databases rather than a space column threaded through
+ * every index. Leaving a space is then a `deleteDatabase`, which cannot leave a
+ * stray row of someone else's history behind, and the space a device had
+ * before spaces were plural keeps the original name (`LEGACY_SPACE_ID`) and is
+ * adopted without migrating a byte.
+ */
 const DB_NAME = "file-sharer";
 const DB_VERSION = 1;
+
+function dbName(spaceId: string): string {
+  return spaceId === LEGACY_SPACE_ID ? DB_NAME : `${DB_NAME}:${spaceId}`;
+}
 
 /**
  * Well-known `meta` keys. Shared between the page (state/session.ts) and the
@@ -63,21 +78,41 @@ export const META_DEVICE_PINS = "devicePins";
 /** What we believe about the other devices' keys, and why (crypto/identity.ts). */
 export const META_DEVICE_IDENTITIES = "deviceIdentities";
 /**
- * The sealed envelope holding this device's secrets while an at-rest lock is
- * set (crypto/vault.ts). Its presence *is* the lock: whenever it exists,
- * META_SESSION and META_KEYRING are absent from storage entirely.
+ * Where the at-rest vault envelope used to live, back when a device held one
+ * space. A lock covers the device, so the envelope now lives in the registry
+ * (db/spaces.ts, `GLOBAL_VAULT`); this key is only read to move it there.
  */
-export const META_VAULT = "vault";
+export const META_LEGACY_VAULT = "vault";
 /** Key epoch the last recovery file was exported at, so a stale one can be flagged. */
 export const META_RECOVERY_EPOCH = "recoveryExportEpoch";
 /** Ids deleted for everyone, so a late copy is dropped instead of reappearing (db/deletions.ts). */
 export const META_DELETED_MESSAGES = "deletedMessages";
 
-let dbPromise: Promise<IDBPDatabase<FileSharerDB>> | null = null;
+const handles = new Map<string, Promise<IDBPDatabase<FileSharerDB>>>();
 
-function db(): Promise<IDBPDatabase<FileSharerDB>> {
-  if (!dbPromise) {
-    dbPromise = openDB<FileSharerDB>(DB_NAME, DB_VERSION, {
+/**
+ * The space the page is currently working in. Everything the UI, the sync loop
+ * and the outbox do belongs to exactly one space, so it is set once when a
+ * space is opened rather than passed through every call. The few operations
+ * that genuinely span spaces — the service worker flushing every outbox, the
+ * at-rest lock re-encrypting the device — name their space explicitly.
+ */
+let active: string | null = null;
+
+export function setActiveSpace(spaceId: string | null): void {
+  active = spaceId;
+}
+
+export function activeSpace(): string | null {
+  return active;
+}
+
+function db(spaceId?: string): Promise<IDBPDatabase<FileSharerDB>> {
+  const id = spaceId ?? active;
+  if (!id) throw new Error("No space is open");
+  let handle = handles.get(id);
+  if (!handle) {
+    handle = openDB<FileSharerDB>(dbName(id), DB_VERSION, {
       upgrade(database) {
         database.createObjectStore("meta");
         const messages = database.createObjectStore("messages", { keyPath: "id" });
@@ -85,22 +120,36 @@ function db(): Promise<IDBPDatabase<FileSharerDB>> {
         database.createObjectStore("files", { keyPath: "r2Key" });
       },
     });
+    handles.set(id, handle);
   }
-  return dbPromise;
+  return handle;
+}
+
+/**
+ * Whether a space's database exists, where the browser can be asked cheaply.
+ *
+ * Firefox has no `indexedDB.databases()`, so the answer there is "maybe" —
+ * `true`, which costs the caller a probe of an empty database rather than a
+ * wrong answer.
+ */
+export async function spaceDataExists(spaceId: string): Promise<boolean> {
+  const known = await indexedDB.databases?.().catch(() => undefined);
+  if (!known) return true;
+  return known.some((entry) => entry.name === dbName(spaceId));
 }
 
 // --- meta (CryptoKeys are structured-cloneable, so they live here directly) ---
 
-export async function metaGet<T>(key: string): Promise<T | undefined> {
-  return (await (await db()).get("meta", key)) as T | undefined;
+export async function metaGet<T>(key: string, spaceId?: string): Promise<T | undefined> {
+  return (await (await db(spaceId)).get("meta", key)) as T | undefined;
 }
 
-export async function metaSet(key: string, value: unknown): Promise<void> {
-  await (await db()).put("meta", value, key);
+export async function metaSet(key: string, value: unknown, spaceId?: string): Promise<void> {
+  await (await db(spaceId)).put("meta", value, key);
 }
 
-export async function metaDelete(key: string): Promise<void> {
-  await (await db()).delete("meta", key);
+export async function metaDelete(key: string, spaceId?: string): Promise<void> {
+  await (await db(spaceId)).delete("meta", key);
 }
 
 // --- messages ---
@@ -119,8 +168,8 @@ async function fromStored(stored: StoredMessage | undefined): Promise<LocalMessa
   return openJson<LocalMessage>(stored.sealed, messageContext(stored.id));
 }
 
-export async function putMessage(message: LocalMessage): Promise<void> {
-  await (await db()).put("messages", await toStored(message));
+export async function putMessage(message: LocalMessage, spaceId?: string): Promise<void> {
+  await (await db(spaceId)).put("messages", await toStored(message));
 }
 
 /**
@@ -130,6 +179,7 @@ export async function putMessage(message: LocalMessage): Promise<void> {
  */
 export async function putOutgoingFileMessages(
   entries: readonly { message: LocalMessage; blob: Blob }[],
+  spaceId?: string,
 ): Promise<void> {
   if (entries.length === 0) return;
   // Sealing is async and IndexedDB transactions do not survive an await that
@@ -140,7 +190,7 @@ export async function putOutgoingFileMessages(
       file: await toStoredFile(message.file!.r2Key, blob),
     })),
   );
-  const database = await db();
+  const database = await db(spaceId);
   const transaction = database.transaction(["messages", "files"], "readwrite");
   await Promise.all([
     ...prepared.map(({ stored }) => transaction.objectStore("messages").put(stored)),
@@ -149,8 +199,8 @@ export async function putOutgoingFileMessages(
   ]);
 }
 
-export async function getMessage(id: string): Promise<LocalMessage | undefined> {
-  return fromStored(await (await db()).get("messages", id));
+export async function getMessage(id: string, spaceId?: string): Promise<LocalMessage | undefined> {
+  return fromStored(await (await db(spaceId)).get("messages", id));
 }
 
 /**
@@ -158,14 +208,14 @@ export async function getMessage(id: string): Promise<LocalMessage | undefined> 
  * error: the only caller that can run locked is the service worker's outbox
  * flush, which correctly does nothing without a session either.
  */
-export async function allMessages(): Promise<LocalMessage[]> {
-  const rows = await (await db()).getAllFromIndex("messages", "by-createdAt");
+export async function allMessages(spaceId?: string): Promise<LocalMessage[]> {
+  const rows = await (await db(spaceId)).getAllFromIndex("messages", "by-createdAt");
   const opened = await Promise.all(rows.map((row) => fromStored(row)));
   return opened.filter((message): message is LocalMessage => message !== undefined);
 }
 
-export async function deleteMessage(id: string): Promise<void> {
-  await (await db()).delete("messages", id);
+export async function deleteMessage(id: string, spaceId?: string): Promise<void> {
+  await (await db(spaceId)).delete("messages", id);
 }
 
 // --- files ---
@@ -176,19 +226,19 @@ async function toStoredFile(r2Key: string, blob: Blob): Promise<StoredFile> {
   return { r2Key, blob: new Blob([sealed.ct]), iv: sealed.iv, mime: blob.type };
 }
 
-export async function putFile(r2Key: string, blob: Blob): Promise<void> {
-  await (await db()).put("files", await toStoredFile(r2Key, blob));
+export async function putFile(r2Key: string, blob: Blob, spaceId?: string): Promise<void> {
+  await (await db(spaceId)).put("files", await toStoredFile(r2Key, blob));
 }
 
-export async function getFile(r2Key: string): Promise<Blob | undefined> {
-  const stored = await (await db()).get("files", r2Key);
+export async function getFile(r2Key: string, spaceId?: string): Promise<Blob | undefined> {
+  const stored = await (await db(spaceId)).get("files", r2Key);
   if (!stored) return undefined;
   if (!stored.iv) return stored.blob;
   return openBlob(stored.blob, stored.iv, fileContext(r2Key), stored.mime ?? "");
 }
 
-export async function deleteFile(r2Key: string): Promise<void> {
-  await (await db()).delete("files", r2Key);
+export async function deleteFile(r2Key: string, spaceId?: string): Promise<void> {
+  await (await db(spaceId)).delete("files", r2Key);
 }
 
 /**
@@ -204,8 +254,11 @@ export async function deleteFile(r2Key: string): Promise<void> {
  * caller (both run with the previous state readable), and skipping beats
  * replacing content with something unreadable.
  */
-export async function rewriteLocalContent(target: CryptoKey | null): Promise<void> {
-  const database = await db();
+export async function rewriteLocalContent(
+  target: CryptoKey | null,
+  spaceId?: string,
+): Promise<void> {
+  const database = await db(spaceId);
 
   for (const key of await database.getAllKeys("messages")) {
     const message = await fromStored(await database.get("messages", key));
@@ -234,8 +287,17 @@ export async function rewriteLocalContent(target: CryptoKey | null): Promise<voi
   }
 }
 
-/** Wipe everything (used on logout / space reset). */
-export async function clearAll(): Promise<void> {
-  const database = await db();
-  await Promise.all([database.clear("meta"), database.clear("messages"), database.clear("files")]);
+/**
+ * Wipe a space from this device: session, keys, history and cached files.
+ *
+ * The whole database goes rather than its stores being cleared, because a
+ * space's storage is only ever recreated by joining it again — and a dropped
+ * database cannot leave behind a row nobody remembers writing.
+ */
+export async function deleteSpaceData(spaceId: string): Promise<void> {
+  const handle = handles.get(spaceId);
+  handles.delete(spaceId);
+  if (handle) (await handle).close();
+  if (active === spaceId) active = null;
+  await deleteDB(dbName(spaceId));
 }

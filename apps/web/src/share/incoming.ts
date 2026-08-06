@@ -1,8 +1,15 @@
-import { sendFileMessages } from "../actions";
-import { session } from "../state/session";
-import { composerDraft, showToast, view } from "../state/ui";
+/**
+ * Reading what the Web Share Target delivered.
+ *
+ * The service worker (src/sw/share-target.ts) cannot hand the POST body to the
+ * page, so it stashes the shared text + files in the Cache Storage and
+ * redirects to `/app?share-target=1`. This module drains that stash; applying
+ * it — prefilling the composer, queueing the files — belongs to the space that
+ * receives it (see `consumeSharedContent` in actions.ts).
+ *
+ * Keep `SHARE_CACHE` and the cache keys in sync with src/sw/share-target.ts.
+ */
 
-// Keep in sync with src/sw/share-target.ts.
 const SHARE_CACHE = "share-target-v1";
 
 interface ShareMeta {
@@ -12,46 +19,45 @@ interface ShareMeta {
   fileCount: number;
 }
 
+/** Text and files handed over by the OS share sheet. */
+export interface SharedContent {
+  text: string;
+  files: File[];
+}
+
 /**
- * Drain content delivered by the Web Share Target.
+ * Whether this page load came from the share sheet, consuming the marker so a
+ * reload does not reprocess an already-handled share.
  *
- * The service worker (src/sw/share-target.ts) stashes the shared text + files
- * in the Cache Storage and redirects to `/?share-target=1`. We pick it up here:
- * text prefills the composer for review, files are queued like a normal upload.
+ * Separate from reading the content because the two happen at different
+ * moments: the marker is in the URL the service worker redirected to and must
+ * be cleared before the router reads it, while the content can only be applied
+ * once a space is open to receive it.
  */
-export async function consumeSharedContent(): Promise<void> {
+export function claimSharedContent(): boolean {
   const params = new URLSearchParams(location.search);
-  if (!params.has("share-target")) return;
-
-  // Drop the marker so a reload doesn't reprocess an already-consumed share.
+  if (!params.has("share-target")) return false;
   history.replaceState(null, "", location.pathname);
+  return true;
+}
 
-  if (!("caches" in window)) return;
+/**
+ * Drain the stash. Whatever it finds is removed from the cache, so a share is
+ * delivered at most once.
+ */
+export async function takeSharedContent(): Promise<SharedContent> {
+  if (!("caches" in window)) return { text: "", files: [] };
   const cache = await caches.open(SHARE_CACHE);
 
   const meta = await readMeta(cache);
   const files = await readFiles(cache, meta.fileCount);
 
-  // Clean up regardless of whether we can act on it below.
   await Promise.all([
     cache.delete("/__shared/meta"),
     ...Array.from({ length: meta.fileCount }, (_, i) => cache.delete(`/__shared/file/${i}`)),
   ]);
 
-  if (!session.value) {
-    showToast("Set up this space first, then share again.", "error");
-    return;
-  }
-
-  view.value = "chat";
-
-  const sharedText = joinSharedText(meta);
-  if (sharedText) composerDraft.value = sharedText;
-
-  if (files.length > 0) {
-    await sendFileMessages(files);
-    showToast(files.length === 1 ? "Shared file added" : `${files.length} shared files added`);
-  }
+  return { text: joinSharedText(meta), files };
 }
 
 async function readMeta(cache: Cache): Promise<ShareMeta> {

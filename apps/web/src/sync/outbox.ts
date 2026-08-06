@@ -49,6 +49,8 @@ const OUTBOX_LOCK = "file-sharer-outbox";
 /** postMessage shape the SW broadcasts after persisting a message update. */
 export interface OutboxUpdateBroadcast {
   type: "outbox-message-updated";
+  /** Which space it belongs to: the page may well be looking at another one. */
+  spaceId: string;
   message: LocalMessage;
 }
 
@@ -66,6 +68,12 @@ export interface FlushOptions {
   signal?: AbortSignal;
   /** Bound a worker pass so a large batch is split into resumable chunks. */
   maxMessages?: number;
+  /**
+   * Which space to flush. Omitted in the page, which is always working in one
+   * space; the service worker passes it, because it flushes every space this
+   * device holds without any of them being "open".
+   */
+  spaceId?: string;
 }
 
 /** Called after each persisted state change so live UIs can update. */
@@ -83,6 +91,18 @@ type NotifyUpdate = (message: LocalMessage) => void;
 interface Signer {
   message(fields: Omit<MessageSignatureFields, "groupId" | "senderDeviceId">): Promise<string>;
   deletion(fields: Omit<DeleteSignatureFields, "groupId" | "senderDeviceId">): Promise<string>;
+}
+
+/** Everything one flush pass needs, resolved once before the first send. */
+interface FlushContext {
+  keyring: Keyring;
+  auth: Auth;
+  /** Absent for a session that predates sender authenticity (see below). */
+  sign?: Signer;
+  notify?: NotifyUpdate;
+  signal?: AbortSignal;
+  /** The space being flushed; undefined means the one the page has open. */
+  spaceId?: string;
 }
 
 function isFlushable(message: LocalMessage): boolean {
@@ -119,11 +139,12 @@ async function doFlush(
   options: FlushOptions,
 ): Promise<FlushResult> {
   const result: FlushResult = { sent: 0, failed: 0, remaining: 0 };
+  const spaceId = options.spaceId;
 
   const [session, keyring, signingKeyPair] = await Promise.all([
-    metaGet<Session>(META_SESSION),
-    loadKeyring(),
-    metaGet<CryptoKeyPair>(META_SIGNING_KEYPAIR),
+    metaGet<Session>(META_SESSION, spaceId),
+    loadKeyring(spaceId),
+    metaGet<CryptoKeyPair>(META_SIGNING_KEYPAIR, spaceId),
   ]);
   if (!session || !keyring) return result;
   const auth: Auth = { token: session.deviceAuthToken };
@@ -145,23 +166,31 @@ async function doFlush(
           ),
       }
     : undefined;
+  const context: FlushContext = {
+    keyring,
+    auth,
+    ...(sign ? { sign } : {}),
+    ...(notify ? { notify } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(spaceId ? { spaceId } : {}),
+  };
 
-  const queued = (await allMessages())
+  const queued = (await allMessages(spaceId))
     .filter(isFlushable)
     .slice(0, options.maxMessages ?? Number.POSITIVE_INFINITY);
   for (const stale of queued) {
     if (options.signal?.aborted) break;
     // Re-read: another context may have flushed this entry meanwhile.
-    const message = await getMessage(stale.id);
+    const message = await getMessage(stale.id, spaceId);
     if (!message || !isFlushable(message)) continue;
 
     try {
       if (message.deletes) {
-        await sendQueuedDeletion(message, keyring, auth, sign, notify, options.signal);
+        await sendQueuedDeletion(message, context);
       } else if (message.file) {
-        await sendQueuedFile(message, keyring, auth, sign, notify, options.signal);
+        await sendQueuedFile(message, context);
       } else if (message.text !== undefined) {
-        await sendQueuedText(message, keyring, auth, sign, notify, options.signal);
+        await sendQueuedText(message, context);
       } else {
         continue;
       }
@@ -169,7 +198,7 @@ async function doFlush(
     } catch (error) {
       // Re-read instead of reusing `message`: sendQueuedFile pins `file.iv`
       // mid-flight and that pin must survive into the retry (see above).
-      const current = (await getMessage(message.id)) ?? message;
+      const current = (await getMessage(message.id, spaceId)) ?? message;
       if (isKeyRotated(error)) {
         // The space key rotated between pinning and sending. Drop the pinned
         // epoch (and the IV that goes with it) so the next pass re-encrypts
@@ -177,20 +206,20 @@ async function doFlush(
         // revoked device never gets to read it.
         await update(
           { ...current, keyEpoch: undefined, file: repinFile(current), status: "queued" },
-          notify,
+          context,
         );
         result.remaining++;
       } else if (isRetriable(error) || options.signal?.aborted) {
         // NetworkError or transient ApiError (rate_limited / internal): back to
         // "queued" for the next attempt. The "uploading" → "queued" reset also
         // keeps the UI honest while offline / being rate-limited.
-        await update({ ...current, status: "queued" }, notify);
+        await update({ ...current, status: "queued" }, context);
         result.remaining++;
       } else {
         // Permanent ApiError, or a local failure (encrypt threw, corrupt blob):
         // retrying can't fix it, so surface it as "failed" (the bubble has a
         // Retry button) instead of silently re-queueing it forever.
-        await update({ ...current, status: "failed" }, notify);
+        await update({ ...current, status: "failed" }, context);
         result.failed++;
       }
       // Once lifecycle cancellation happens, release the lock promptly. The
@@ -200,15 +229,15 @@ async function doFlush(
   }
   // Count the persisted queue, including items outside this bounded pass and
   // files added while it was running. This drives reliable follow-up syncs.
-  result.remaining = (await allMessages()).filter(isFlushable).length;
+  result.remaining = (await allMessages(spaceId)).filter(isFlushable).length;
   return result;
 }
 
-async function update(message: LocalMessage, notify?: NotifyUpdate): Promise<void> {
+async function update(message: LocalMessage, context: FlushContext): Promise<void> {
   // If the user deleted the message locally mid-flush, don't resurrect it.
-  if (!(await getMessage(message.id))) return;
-  await putMessage(message);
-  notify?.(message);
+  if (!(await getMessage(message.id, context.spaceId))) return;
+  await putMessage(message, context.spaceId);
+  context.notify?.(message);
 }
 
 /**
@@ -260,19 +289,18 @@ function repinFile(message: LocalMessage): LocalMessage["file"] {
  */
 async function pinEpoch(
   message: LocalMessage,
-  keyring: Keyring,
-  notify?: NotifyUpdate,
+  context: FlushContext,
 ): Promise<{ epoch: number; key: CryptoKey }> {
   const pinned = message.keyEpoch;
   if (pinned !== undefined) {
-    const key = keyring.keys.get(pinned);
+    const key = context.keyring.keys.get(pinned);
     if (key) return { epoch: pinned, key };
     // We no longer hold the pinned epoch (only possible after a local wipe);
     // fall through and re-pin to the current one.
   }
-  const epoch = keyring.current;
-  await update({ ...message, keyEpoch: epoch }, notify);
-  return { epoch, key: currentKey(keyring) };
+  const epoch = context.keyring.current;
+  await update({ ...message, keyEpoch: epoch }, context);
+  return { epoch, key: currentKey(context.keyring) };
 }
 
 /**
@@ -283,17 +311,11 @@ async function pinEpoch(
  * before a rotation is re-queued through the same `key_rotated` path instead of
  * being silently accepted under a superseded key.
  */
-async function sendQueuedDeletion(
-  message: LocalMessage,
-  keyring: Keyring,
-  auth: Auth,
-  sign: Signer | undefined,
-  notify?: NotifyUpdate,
-  signal?: AbortSignal,
-): Promise<void> {
+async function sendQueuedDeletion(message: LocalMessage, context: FlushContext): Promise<void> {
+  const { auth, sign, signal } = context;
   signal?.throwIfAborted();
   const deletesMessageId = message.deletes!;
-  const { epoch } = await pinEpoch(message, keyring, notify);
+  const { epoch } = await pinEpoch(message, context);
   try {
     await api.sendMessage(
       {
@@ -316,19 +338,13 @@ async function sendQueuedDeletion(
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
   }
-  await update({ ...message, keyEpoch: epoch, status: "sent" }, notify);
+  await update({ ...message, keyEpoch: epoch, status: "sent" }, context);
 }
 
-async function sendQueuedText(
-  message: LocalMessage,
-  keyring: Keyring,
-  auth: Auth,
-  sign: Signer | undefined,
-  notify?: NotifyUpdate,
-  signal?: AbortSignal,
-): Promise<void> {
+async function sendQueuedText(message: LocalMessage, context: FlushContext): Promise<void> {
+  const { auth, sign, signal } = context;
   signal?.throwIfAborted();
-  const { epoch, key } = await pinEpoch(message, keyring, notify);
+  const { epoch, key } = await pinEpoch(message, context);
   const encrypted = await encryptText(key, message.text!, `text:${message.id}`);
   signal?.throwIfAborted();
   const signed = {
@@ -352,32 +368,26 @@ async function sendQueuedText(
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
   }
-  await update({ ...message, keyEpoch: epoch, status: "sent" }, notify);
+  await update({ ...message, keyEpoch: epoch, status: "sent" }, context);
 }
 
-async function sendQueuedFile(
-  message: LocalMessage,
-  keyring: Keyring,
-  auth: Auth,
-  sign: Signer | undefined,
-  notify?: NotifyUpdate,
-  signal?: AbortSignal,
-): Promise<void> {
+async function sendQueuedFile(message: LocalMessage, context: FlushContext): Promise<void> {
+  const { auth, sign, signal } = context;
   let file = message.file!;
-  const blob = await getFile(file.r2Key);
+  const blob = await getFile(file.r2Key, context.spaceId);
   if (!blob) {
     // The local original is gone; we can never re-upload it.
     throw new Error("Local upload source is missing");
   }
 
-  const { epoch, key } = await pinEpoch(message, keyring, notify);
+  const { epoch, key } = await pinEpoch(message, context);
 
   // Pin the file IV *before* uploading and reuse it on retries: with the same
   // key + IV the re-encrypted ciphertext is byte-identical, so a retry that
   // races a previously-registered send (see `isAlreadySent`) can never leave R2
   // holding ciphertext that doesn't match the IV the server already stored.
   if (!file.iv) file = { ...file, iv: bufToBase64Url(randomBytes(12)) };
-  await update({ ...message, file, keyEpoch: epoch, status: "uploading" }, notify);
+  await update({ ...message, file, keyEpoch: epoch, status: "uploading" }, context);
 
   signal?.throwIfAborted();
   const encrypted = await encryptFile(key, await blob.arrayBuffer(), `file:${message.id}`, file.iv);
@@ -414,5 +424,5 @@ async function sendQueuedFile(
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
   }
-  await update({ ...message, file, keyEpoch: epoch, status: "sent" }, notify);
+  await update({ ...message, file, keyEpoch: epoch, status: "sent" }, context);
 }

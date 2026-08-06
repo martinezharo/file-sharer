@@ -35,10 +35,16 @@ import {
 } from "./crypto/identity";
 import { createKeyring, currentKey, keyForEpoch } from "./crypto/keyring";
 import {
+  GLOBAL_PENDING_PAIRING,
+  type SpaceRecord,
+  globalMetaDelete,
+  globalMetaGet,
+  globalMetaSet,
+} from "./db/spaces";
+import {
   META_SIGNING_KEYPAIR,
   META_SIGNING_KEY_PUBLISHED,
   getFile,
-  metaDelete,
   metaGet,
   metaSet,
   putOutgoingFileMessages,
@@ -50,7 +56,8 @@ import {
   loadMessages,
   upsertMessage,
 } from "./state/messages";
-import { forgetLock } from "./state/lock";
+import { locked } from "./state/lock";
+import { APP_PATH, navigate, route, showSpaceSection, spacePath } from "./state/route";
 import {
   applyKeyring,
   applySigningKeyPair,
@@ -58,12 +65,20 @@ import {
   deviceKeyPair,
   keyring,
   persistSession,
-  resetSession,
   session,
   sessionRevoked,
   signingKeyPair,
 } from "./state/session";
-import { showToast, view } from "./state/ui";
+import {
+  activeSpace,
+  beginSpace,
+  closeSpace,
+  forgetSpace,
+  openSpace,
+  refreshSpaces,
+} from "./state/spaces";
+import { takeSharedContent } from "./share/incoming";
+import { composerDraft, showToast } from "./state/ui";
 import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
 import { DeviceKeyMismatchError, rotateGroupKey } from "./sync/rekey";
 import { startSync, stopSync, syncNow } from "./sync/sync";
@@ -89,7 +104,22 @@ let linkTimer: ReturnType<typeof setInterval> | null = null;
 // Onboarding: create a new space (this device becomes the first member)
 // ---------------------------------------------------------------------------
 
-export async function createSpace(deviceName: string): Promise<void> {
+export async function createSpace(deviceName: string, spaceName: string): Promise<SpaceRecord> {
+  // Registered (and made the active space) first, so everything below already
+  // writes into its own storage rather than into whatever was open before.
+  const space = await beginSpace(spaceName);
+  try {
+    await setUpNewSpace(deviceName);
+  } catch (error) {
+    // Nothing reached the server, or nothing that this device can use: leaving
+    // a half-created space in the list would only offer a door into nowhere.
+    await forgetSpace(space.id);
+    throw error;
+  }
+  return space;
+}
+
+async function setUpNewSpace(deviceName: string): Promise<void> {
   const keyPair = await generateDeviceKeyPair();
   const signingPair = await generateSigningKeyPair();
   const newGroupKey = await generateGroupKey();
@@ -130,8 +160,7 @@ export async function createSpace(deviceName: string): Promise<void> {
   );
   await pinScannedDevice({ deviceId, publicKey, signingPublicKey });
   await metaSet(META_SIGNING_KEY_PUBLISHED, true);
-  await loadMessages();
-  startSync();
+  await startSession();
 }
 
 // ---------------------------------------------------------------------------
@@ -217,8 +246,10 @@ export async function startLinking(deviceName: string): Promise<void> {
   };
   await api.pairingRequest(pairingId, { device: { id: deviceId, publicKey, signingPublicKey } });
 
+  // The pairing belongs to no space yet — that is what it is trying to join —
+  // so it waits in the device-global registry rather than in a space's storage.
   const pending: PendingPairing = { keyPair, signingKeyPair: signingPair, payload };
-  await metaSet("pendingPairing", pending);
+  await globalMetaSet(GLOBAL_PENDING_PAIRING, pending);
 
   linking.value = {
     pairingId,
@@ -230,10 +261,15 @@ export async function startLinking(deviceName: string): Promise<void> {
   startLinkPolling(pending);
 }
 
-/** Resume an interrupted linking flow after a reload. */
+/**
+ * Resume an interrupted linking flow: after a reload, and whenever the user
+ * comes back to the space list from a space (linking is offered there, and a
+ * pairing that was in flight should not have to be started again).
+ */
 export async function resumeLinking(): Promise<void> {
-  const pending = await metaGet<PendingPairing>("pendingPairing");
-  if (!pending || session.value) return;
+  if (linking.value || locked.value) return;
+  const pending = await globalMetaGet<PendingPairing>(GLOBAL_PENDING_PAIRING);
+  if (!pending) return;
   linking.value = {
     pairingId: pending.payload.pairingId,
     deviceId: pending.payload.deviceId,
@@ -252,6 +288,19 @@ function startLinkPolling(pending: PendingPairing): void {
 function stopLinkPolling(): void {
   if (linkTimer) clearInterval(linkTimer);
   linkTimer = null;
+}
+
+/**
+ * Put a linking flow on hold while the user is inside a space.
+ *
+ * Completing a pairing switches the app to the space it just joined, which
+ * would be a rude thing to do to someone who has since navigated into another
+ * one. The pairing itself is untouched — it is still valid server-side, and
+ * `resumeLinking` picks it up when the space list comes back into view.
+ */
+export function pauseLinking(): void {
+  stopLinkPolling();
+  linking.value = null;
 }
 
 async function pollLink(pending: PendingPairing): Promise<void> {
@@ -275,6 +324,9 @@ async function pollLink(pending: PendingPairing): Promise<void> {
       deviceName: payload.deviceName,
       deviceAuthToken: recovered.deviceAuthToken,
     };
+    // The space's name travels inside the encrypted package, so a linked device
+    // recognises the space by the name it was given instead of by an id.
+    const space = await beginSpace(recovered.spaceName ?? null);
     // The space may have rotated its key long before this device existed, so
     // the keyring starts at the epoch it was handed, not at 1.
     await persistSession(
@@ -296,14 +348,13 @@ async function pollLink(pending: PendingPairing): Promise<void> {
       publicKey: payload.publicKey,
       ...(payload.signingPublicKey ? { signingPublicKey: payload.signingPublicKey } : {}),
     });
-    await metaDelete("pendingPairing");
+    await globalMetaDelete(GLOBAL_PENDING_PAIRING);
     // Best-effort: the slot is already TTL-reaped by cron, this just avoids
     // leaving the (encrypted) package reachable until then.
     void api.pairingDelete(pairingId).catch(() => {});
-    await loadMessages();
-    startSync();
-    void ensureSigningIdentity();
+    await startSession();
     linking.value = null;
+    navigate(spacePath(space.id));
     showToast("Device linked successfully");
   } catch (error) {
     // A flaky network on a phone is the rule, not the exception: the next
@@ -321,7 +372,7 @@ async function pollLink(pending: PendingPairing): Promise<void> {
 export async function cancelLinking(): Promise<void> {
   stopLinkPolling();
   linking.value = null;
-  await metaDelete("pendingPairing");
+  await globalMetaDelete(GLOBAL_PENDING_PAIRING);
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +408,7 @@ export async function addDeviceFromQr(qrText: string): Promise<void> {
       // the joining device would have to believe the server's roster, and would
       // have no trusted key to check any attestation against.
       roster: await identityBundles(),
+      ...(activeSpace.value?.name ? { spaceName: activeSpace.value.name } : {}),
     },
     payload.pairingId,
   );
@@ -755,16 +807,106 @@ export async function deleteMessageEverywhere(message: LocalMessage): Promise<vo
 // Session lifecycle
 // ---------------------------------------------------------------------------
 
-export async function logout(): Promise<void> {
+/**
+ * Leave the active space on this device: its history, files and keys are wiped
+ * here, while the space itself lives on for every other device in it.
+ */
+export async function leaveSpace(): Promise<void> {
+  const space = activeSpace.value;
+  if (!space) return;
   stopSync();
   // The next space this device joins mints its own identity, so the guard must
   // not carry the previous session's answer over.
   signingKeyPublished = false;
-  await resetSession();
-  // `resetSession` wipes the database, envelope included, so the in-memory lock
-  // state has to go with it or the app would ask to unlock a vault that is gone.
-  forgetLock();
-  view.value = "chat";
+  await forgetSpace(space.id);
+  navigate(APP_PATH);
+}
+
+// ---------------------------------------------------------------------------
+// Web Share Target
+// ---------------------------------------------------------------------------
+
+/** This launch came from the OS share sheet and still owes a space its content. */
+let sharePending = false;
+
+export function noteSharedContent(): void {
+  sharePending = true;
+}
+
+export function hasPendingShare(): boolean {
+  return sharePending;
+}
+
+/**
+ * Hand the shared content to the space that is now open: text prefills the
+ * composer for review, files are queued like any other upload.
+ *
+ * It waits for a space rather than failing without one, because the share sheet
+ * cannot know which space the user meant — so the app asks, and delivers the
+ * content to whichever one they open.
+ */
+export async function consumeSharedContent(): Promise<void> {
+  if (!sharePending || !session.value) return;
+  sharePending = false;
+
+  const { text, files } = await takeSharedContent();
+  showSpaceSection("chat");
+  if (text) composerDraft.value = text;
+  if (files.length > 0) {
+    await sendFileMessages(files);
+    showToast(files.length === 1 ? "Shared file added" : `${files.length} shared files added`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Route ↔ space
+// ---------------------------------------------------------------------------
+
+/**
+ * Bring the app in line with the URL: open the space the route names, or leave
+ * whichever one was open when it stops naming any.
+ *
+ * This is the single place a space is entered or left, so the sync loop, the
+ * linking flow and the in-memory session cannot end up belonging to a space
+ * other than the one on screen.
+ */
+export async function applyRoute(): Promise<void> {
+  const current = route.value;
+  if (locked.value) return;
+
+  if (current.name !== "space") {
+    if (activeSpace.value) {
+      stopSync();
+      closeSpace();
+    }
+    // Linking is offered from the space list, and a pairing that was in flight
+    // before the user stepped into a space is still valid.
+    if (current.name === "spaces") await resumeLinking();
+    return;
+  }
+
+  if (activeSpace.value?.id === current.spaceId) return;
+  if (activeSpace.value) {
+    stopSync();
+    closeSpace();
+  }
+  pauseLinking();
+
+  if (!(await openSpace(current.spaceId))) {
+    // A bookmark to a space this device no longer has (left here, or never
+    // linked on this one). The list is the honest place to land.
+    navigate(APP_PATH, { replace: true });
+    showToast("That space isn't on this device", "error");
+    return;
+  }
+  if (session.value) await startSession();
+  await consumeSharedContent();
+}
+
+/** Everything the app can only do once the device is unlocked. */
+export async function resumeAfterUnlock(): Promise<void> {
+  await refreshSpaces();
+  await applyRoute();
 }
 
 /**

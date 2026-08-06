@@ -31,20 +31,20 @@ export function createKeyring(key: CryptoKey, epoch = INITIAL_KEY_EPOCH): Keyrin
  * stored a single `groupKey` and the server defaults their group to epoch 1, so
  * the two line up without re-pairing or any user-visible event.
  */
-export async function loadKeyring(): Promise<Keyring | null> {
-  const stored = await metaGet<Keyring>(META_KEYRING);
+export async function loadKeyring(spaceId?: string): Promise<Keyring | null> {
+  const stored = await metaGet<Keyring>(META_KEYRING, spaceId);
   if (stored) return stored;
 
-  const legacy = await metaGet<CryptoKey>(META_GROUP_KEY);
+  const legacy = await metaGet<CryptoKey>(META_GROUP_KEY, spaceId);
   if (!legacy) return null;
   const keyring = createKeyring(legacy);
-  await saveKeyring(keyring);
-  await metaDelete(META_GROUP_KEY);
+  await saveKeyring(keyring, spaceId);
+  await metaDelete(META_GROUP_KEY, spaceId);
   return keyring;
 }
 
-export async function saveKeyring(keyring: Keyring): Promise<void> {
-  await metaSet(META_KEYRING, keyring);
+export async function saveKeyring(keyring: Keyring, spaceId?: string): Promise<void> {
+  await metaSet(META_KEYRING, keyring, spaceId);
 }
 
 /** The key a given epoch's ciphertext needs, or undefined if we never held it. */

@@ -1,27 +1,46 @@
 import {
   AlertTriangle,
+  ArrowLeft,
   LockKeyhole,
   LogOut,
   MessagesSquare,
   MonitorSmartphone,
+  MoreVertical,
+  Pencil,
 } from "lucide-preact";
-import { useState } from "preact/hooks";
 import type { JSX } from "preact";
-import { logout, startSession } from "../actions";
+import { useState } from "preact/hooks";
+import { leaveSpace, resumeAfterUnlock } from "../actions";
+import { UNNAMED_SPACE } from "../db/spaces";
 import { lockConfigured, lockNow, locked } from "../state/lock";
-import { ready, session, sessionRevoked } from "../state/session";
-import { online, view, type View } from "../state/ui";
+import {
+  APP_PATH,
+  type SpaceSection,
+  followLink,
+  navigate,
+  route,
+  spacePath,
+} from "../state/route";
+import { ready, session, sessionRevoked, startupError } from "../state/session";
+import { activeSpace, renameActiveSpace } from "../state/spaces";
+import { online } from "../state/ui";
 import { Chat } from "./Chat";
-import { Button, cx, IconButton, Logo, Modal, Spinner, Toasts } from "./components";
 import { DeviceManager } from "./DeviceManager";
 import { DropZone } from "./DropZone";
 import { Landing } from "./Landing";
 import { LockScreen } from "./LockScreen";
+import { type MenuAnchor, Menu, MenuItem, MenuSeparator, anchorBelow } from "./Menu";
+import { Spaces } from "./Spaces";
+import { Button, IconButton, Modal, Spinner, Toasts, cx } from "./components";
 
-const NAV: Array<{ id: View; label: string; icon: typeof MessagesSquare }> = [
+const SECTIONS: Array<{ id: SpaceSection; label: string; icon: typeof MessagesSquare }> = [
   { id: "chat", label: "Messages", icon: MessagesSquare },
   { id: "devices", label: "Devices", icon: MonitorSmartphone },
 ];
+
+function sectionLabel(section: SpaceSection): string {
+  return SECTIONS.find((entry) => entry.id === section)?.label ?? "";
+}
 
 export function App(): JSX.Element {
   return (
@@ -35,113 +54,163 @@ export function App(): JSX.Element {
 }
 
 function CurrentView(): JSX.Element {
+  const current = route.value;
+
+  // The marketing page is static and needs nothing loaded, so it renders before
+  // (and regardless of) anything IndexedDB has to say.
+  if (current.name === "landing") return <Landing />;
+
+  if (startupError.value) return <StartupError message={startupError.value} />;
+
+  if (!ready.value) return <Loading />;
+
+  // A locked device has nothing loaded to show: every space's session and every
+  // stored message are ciphertext until the secret arrives.
+  if (locked.value) return <LockScreen onUnlocked={() => void resumeAfterUnlock()} />;
+
+  if (current.name === "spaces") return <Spaces />;
+
+  const space = activeSpace.value;
+  // Opening a space is asynchronous (storage, and possibly the vault), and a
+  // route change lands here first.
+  if (!space || space.id !== current.spaceId || !session.value) return <Loading />;
+
+  return <SpaceView section={current.section} />;
+}
+
+function Loading(): JSX.Element {
+  return (
+    <div class="bg-grad grid h-full place-items-center">
+      <Spinner large />
+    </div>
+  );
+}
+
+function StartupError({ message }: { message: string }): JSX.Element {
+  return (
+    <div class="bg-grad grid min-h-full place-items-center p-6">
+      <section
+        role="alert"
+        class="w-full max-w-[480px] rounded-xl3 bg-surface p-7 text-center shadow-float max-md:p-6"
+      >
+        <div class="mx-auto grid size-12 place-items-center rounded-[14px] bg-danger-soft text-danger [&_svg]:size-6">
+          <AlertTriangle />
+        </div>
+        <h1 class="mt-5 font-display text-[24px] font-semibold tracking-[-0.025em]">
+          Secure connection required
+        </h1>
+        <p class="mt-3 text-[14px] leading-6 text-subtle">{message}</p>
+        <p class="mt-3 text-[13px] leading-5 text-muted">
+          For local development, open the app through <code>http://localhost</code> or configure
+          HTTPS for the host you are using.
+        </p>
+        <Button class="mt-6" variant="secondary" onClick={() => window.location.reload()}>
+          Try again
+        </Button>
+      </section>
+    </div>
+  );
+}
+
+function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const space = activeSpace.value;
+  const spaceName = space?.name ?? UNNAMED_SPACE;
+  const spaceId = space?.id ?? "";
 
-  if (!ready.value) {
-    return (
-      <div class="bg-grad grid h-full place-items-center">
-        <Spinner large />
-      </div>
-    );
-  }
-
-  // A locked device has nothing loaded to show: the session and every stored
-  // message are ciphertext until the secret arrives.
-  if (locked.value) {
-    return <LockScreen onUnlocked={() => void startSession()} />;
-  }
-
-  if (!session.value) {
-    return <Landing />;
-  }
-
-  const current = view.value;
-  const meta = current === "chat" ? "Messages" : "Devices";
-
-  const requestLeave = (): void => setConfirmLeaveOpen(true);
   const confirmLeave = async (): Promise<void> => {
     setConfirmLeaveOpen(false);
-    await logout();
+    await leaveSpace();
   };
 
   return (
     <div class="bg-grad flex h-full">
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar: the nav lists the places that hold content, and the
+          actions on the space itself hang off the name they act on. */}
       <aside class="hidden w-[248px] flex-none flex-col gap-1 border-r border-line bg-[color-mix(in_srgb,var(--c-surface)_55%,transparent)] p-[14px] pt-[18px] backdrop-blur-xl md:flex">
-        <div class="px-2 pb-4 pt-1.5">
-          <Logo />
+        <div class="flex items-center gap-0.5 pb-3.5 pt-0.5">
+          <BackLink to={APP_PATH} label="All spaces" />
+          {/* The name is its own rename shortcut: the pencil is only a hover
+              hint, so the menu beside it stays the discoverable path. */}
+          <button
+            type="button"
+            title={`Rename ${spaceName}`}
+            onClick={() => setRenaming(true)}
+            class="group mr-auto flex min-w-0 items-center gap-1.5 rounded-[10px] px-1.5 py-[7px] text-left transition hover:bg-surface-3"
+          >
+            <span class="truncate font-display text-[15px] font-semibold tracking-[-0.022em]">
+              {spaceName}
+            </span>
+            <Pencil class="size-[13px] flex-none text-muted opacity-0 transition group-hover:opacity-100" />
+          </button>
+          <SpaceMenuButton
+            spaceId={spaceId}
+            onRename={() => setRenaming(true)}
+            onLeave={() => setConfirmLeaveOpen(true)}
+          />
         </div>
 
         <nav class="flex flex-col gap-[3px]">
-          {NAV.map(({ id, label, icon: Icon }) => (
-            <NavItem key={id} active={current === id} onClick={() => (view.value = id)}>
+          {SECTIONS.map(({ id, label, icon: Icon }) => (
+            <NavItem key={id} active={section === id} href={spacePath(spaceId, id)}>
               <Icon />
               {label}
             </NavItem>
           ))}
         </nav>
 
-        <div class="mt-auto flex flex-col gap-[3px]">
-          {lockConfigured.value && (
-            <NavItem onClick={lockNow}>
-              <LockKeyhole />
-              Lock this device
-            </NavItem>
-          )}
-          <div class="flex items-center gap-2.5 px-[11px] py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
-            <span
-              class={cx(
-                "size-2 flex-none rounded-full",
-                online.value
-                  ? "bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--c-success)_22%,transparent)]"
-                  : "bg-muted",
-              )}
-            />
-            {online.value ? "Connected" : "Offline"}
-          </div>
-          <NavItem danger onClick={requestLeave}>
-            <LogOut />
-            Leave space
-          </NavItem>
+        <div class="mt-auto flex items-center gap-2.5 px-[11px] py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
+          <span
+            class={cx(
+              "size-2 flex-none rounded-full",
+              online.value
+                ? "bg-success shadow-[0_0_0_3px_color-mix(in_srgb,var(--c-success)_22%,transparent)]"
+                : "bg-muted",
+            )}
+          />
+          {online.value ? "Connected" : "Offline"}
         </div>
       </aside>
 
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <header class="sticky top-0 z-20 flex h-[calc(56px+env(safe-area-inset-top))] flex-none items-center justify-between gap-3 border-b border-line bg-[color-mix(in_srgb,var(--c-surface)_80%,transparent)] px-[14px] pt-[env(safe-area-inset-top)] backdrop-blur-xl md:hidden">
-          <Logo />
-          <div class="flex items-center gap-0.5">
-            <div class="flex gap-0.5 rounded-[10px] bg-surface-3 p-[3px]">
-              {NAV.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-label={label}
-                  onClick={() => (view.value = id)}
-                  class={cx(
-                    "inline-flex h-8 w-[38px] items-center justify-center rounded-[7px] transition [&_svg]:size-[18px]",
-                    current === id ? "bg-surface text-accent shadow-soft" : "text-muted",
-                  )}
-                >
-                  <Icon />
-                </button>
-              ))}
-            </div>
-            <IconButton label="Leave space" onClick={requestLeave}>
-              <LogOut />
-            </IconButton>
+        {/* Mobile top bar. The space is a stack rather than a switch: the chat
+            is the space, and a section is stepped into and backed out of, so
+            the same arrow always means "one level up". */}
+        <header class="sticky top-0 z-20 flex h-[calc(56px+env(safe-area-inset-top))] flex-none items-center justify-between gap-2 border-b border-line bg-[color-mix(in_srgb,var(--c-surface)_80%,transparent)] px-[10px] pt-[env(safe-area-inset-top)] backdrop-blur-xl md:hidden">
+          <div class="flex min-w-0 items-center gap-0.5">
+            {section === "chat" ? (
+              <BackLink to={APP_PATH} label="All spaces" />
+            ) : (
+              <BackLink to={spacePath(spaceId)} label={`Back to ${spaceName}`} />
+            )}
+            <span class="truncate px-1.5 font-display text-[15px] font-semibold tracking-[-0.022em]">
+              {section === "chat" ? spaceName : sectionLabel(section)}
+            </span>
           </div>
+          {section === "chat" && (
+            <SpaceMenuButton
+              spaceId={spaceId}
+              showDevices
+              onRename={() => setRenaming(true)}
+              onLeave={() => setConfirmLeaveOpen(true)}
+            />
+          )}
         </header>
 
         {/* Desktop view header */}
         <div class="hidden h-[60px] flex-none items-center justify-between gap-3 border-b border-line px-6 md:flex">
-          <div class="font-display text-[17px] font-semibold tracking-[-0.022em]">{meta}</div>
+          <div class="font-display text-[17px] font-semibold tracking-[-0.022em]">
+            {sectionLabel(section)}
+          </div>
         </div>
 
         <main class="flex min-h-0 flex-1 flex-col">
-          {current === "chat" ? <Chat /> : <DeviceManager />}
+          {section === "chat" ? <Chat /> : <DeviceManager />}
         </main>
       </div>
+
+      {renaming && <RenameSpaceModal name={spaceName} onClose={() => setRenaming(false)} />}
 
       {confirmLeaveOpen && (
         <Modal title="Leave this space?" onClose={() => setConfirmLeaveOpen(false)}>
@@ -152,8 +221,8 @@ function CurrentView(): JSX.Element {
             </p>
           </div>
           <p class="text-[13.5px] leading-5 text-subtle">
-            Other devices in the space will keep their access. You can link this device again later
-            from another device.
+            Other devices in the space will keep their access, and your other spaces on this device
+            are untouched. You can link this device again later from another device.
           </p>
           <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
             <Button
@@ -177,10 +246,133 @@ function CurrentView(): JSX.Element {
   );
 }
 
+/** One level up: out of a section into the space, or out of the space into the list. */
+function BackLink({ to, label }: { to: string; label: string }): JSX.Element {
+  return (
+    <a
+      href={to}
+      aria-label={label}
+      title={label}
+      onClick={(event) => followLink(event as unknown as MouseEvent, to)}
+      class="inline-flex size-[38px] flex-none items-center justify-center rounded-[10px] text-subtle transition hover:bg-surface-3 hover:text-ink active:scale-90 [&_svg]:size-[19px]"
+    >
+      <ArrowLeft />
+    </a>
+  );
+}
+
 /**
- * Terminal state: the server no longer accepts this device. Nothing in the app
- * works from here, so the notice is not dismissable — the only way out is to
- * link the device again, which starts a fresh session.
+ * Everything a space can do, behind one visible button — the single list both
+ * breakpoints share, so an action is never added to one and forgotten in the
+ * other. There is no hover on a phone, so no action may depend on one.
+ * `showDevices` is for the mobile bar, which has no nav to reach it by.
+ */
+function SpaceMenuButton({
+  spaceId,
+  showDevices = false,
+  onRename,
+  onLeave,
+}: {
+  spaceId: string;
+  showDevices?: boolean;
+  onRename: () => void;
+  onLeave: () => void;
+}): JSX.Element {
+  const [anchor, setAnchor] = useState<MenuAnchor | null>(null);
+
+  const run = (action: () => void) => (): void => {
+    setAnchor(null);
+    action();
+  };
+
+  return (
+    <>
+      <IconButton
+        label="Space options"
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        onClick={(event) => setAnchor(anchorBelow(event.currentTarget as HTMLElement))}
+      >
+        <MoreVertical />
+      </IconButton>
+
+      {anchor && (
+        <Menu anchor={anchor} alignRight label="Space options" onClose={() => setAnchor(null)}>
+          {showDevices && (
+            <MenuItem
+              icon={<MonitorSmartphone />}
+              onClick={run(() => navigate(spacePath(spaceId, "devices")))}
+            >
+              Devices
+            </MenuItem>
+          )}
+          <MenuItem icon={<Pencil />} onClick={run(onRename)}>
+            Rename space
+          </MenuItem>
+          {lockConfigured.value && (
+            <MenuItem icon={<LockKeyhole />} onClick={run(lockNow)}>
+              Lock this device
+            </MenuItem>
+          )}
+          <MenuSeparator />
+          <MenuItem danger icon={<LogOut />} onClick={run(onLeave)}>
+            Leave space
+          </MenuItem>
+        </Menu>
+      )}
+    </>
+  );
+}
+
+function RenameSpaceModal({ name, onClose }: { name: string; onClose: () => void }): JSX.Element {
+  const [value, setValue] = useState(activeSpace.value?.name ?? "");
+
+  const save = async (): Promise<void> => {
+    await renameActiveSpace(value);
+    onClose();
+  };
+
+  return (
+    <Modal title="Rename space" onClose={onClose}>
+      <form
+        class="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <label class="flex flex-col gap-1.5 text-left">
+          <span class="text-[13px] font-medium text-subtle">Space name</span>
+          <input
+            type="text"
+            class="field-input"
+            value={value}
+            placeholder={name}
+            maxLength={64}
+            autoFocus
+            onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+          />
+        </label>
+        <p class="text-[12.5px] leading-5 text-muted">
+          The name is stored on this device only, and shared with a device when you link it.
+        </p>
+        <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
+          <Button class="sm:w-auto" variant="ghost" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button class="sm:w-auto" variant="primary" type="submit">
+            Save
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Terminal state: the server no longer accepts this device. Nothing in this
+ * space works from here, so the notice is not dismissable — the only way out is
+ * to leave the space, which is also how it can be linked again.
  */
 function RevokedNotice(): JSX.Element {
   return (
@@ -194,42 +386,44 @@ function RevokedNotice(): JSX.Element {
       </div>
       <p class="text-[13.5px] leading-5 text-subtle">
         Linking again starts a new session on this device: the messages, files and encryption keys
-        stored here are removed first.
+        stored here for this space are removed first.
       </p>
       <div class="flex justify-end">
-        <Button class="sm:w-auto" variant="danger" onClick={() => void logout()}>
-          Link again
+        <Button class="sm:w-auto" variant="danger" onClick={() => void leaveSpace()}>
+          Leave and link again
         </Button>
       </div>
     </Modal>
   );
 }
 
+/**
+ * A sidebar entry. Every one of them points at a section that holds content,
+ * so they are real links — navigable, bookmarkable and middle-clickable.
+ * Actions on the space live in the menu beside its name, not here.
+ */
 function NavItem({
   active,
-  danger,
-  onClick,
+  href,
   children,
 }: {
   active?: boolean;
-  danger?: boolean;
-  onClick: () => void;
+  href: string;
   children: preact.ComponentChildren;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <a
+      href={href}
+      aria-current={active ? "page" : undefined}
+      onClick={(event) => followLink(event as unknown as MouseEvent, href)}
       class={cx(
         "flex w-full items-center gap-[11px] rounded-[10px] px-[11px] py-[9px] text-left text-[14px] font-medium transition [&_svg]:size-[18px] [&_svg]:flex-none [&_svg]:opacity-85",
         active
           ? "bg-accent-soft text-accent [&_svg]:opacity-100"
-          : danger
-            ? "text-subtle hover:bg-danger-soft hover:text-danger"
-            : "text-subtle hover:bg-surface-3 hover:text-ink",
+          : "text-subtle hover:bg-surface-3 hover:text-ink",
       )}
     >
       {children}
-    </button>
+    </a>
   );
 }

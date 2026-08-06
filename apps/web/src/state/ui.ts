@@ -1,9 +1,5 @@
 import { signal } from "@preact/signals";
 
-export type View = "chat" | "devices";
-
-export const view = signal<View>("chat");
-
 /** Text to push into the chat composer (e.g. from the Web Share Target). */
 export const composerDraft = signal<string>("");
 

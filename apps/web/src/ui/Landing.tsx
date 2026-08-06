@@ -1,6 +1,8 @@
 import {
   ArrowRight,
+  CheckCheck,
   EyeOff,
+  FileText,
   FileUp,
   Link2,
   Lock,
@@ -10,13 +12,11 @@ import {
   Send,
   ShieldCheck,
   WifiOff,
-  X,
 } from "lucide-preact";
-import type { JSX, RefObject } from "preact";
-import { createPortal } from "preact/compat";
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { OnboardingCard } from "./Onboarding";
-import { IconButton, Logo, Toasts, cx } from "./components";
+import type { JSX } from "preact";
+import { useEffect, useState } from "preact/hooks";
+import { APP_PATH, followLink } from "../state/route";
+import { Logo, Toasts, cx } from "./components";
 
 interface Feature {
   icon: typeof Lock;
@@ -37,8 +37,8 @@ const FEATURES: Feature[] = [
   },
   {
     icon: MonitorSmartphone,
-    title: "One private space, every device",
-    body: "Keep your phone, laptop, and tablet connected through one private space you control.",
+    title: "As many spaces as you need",
+    body: "Keep work, home, and one-off transfers apart: each space has its own devices, history, and encryption keys.",
   },
   {
     icon: QrCode,
@@ -111,22 +111,16 @@ const FAQS: Faq[] = [
   },
 ];
 
-const OPEN_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
-const CLOSE_EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
+/**
+ * The public marketing page.
+ *
+ * Prerendered into index.html at build time (scripts/prerender.mjs), so it is
+ * what crawlers and no-JS clients see. Every call to action leads to `/app`,
+ * where the spaces live — nothing here creates or touches one, which is also
+ * why this page needs no state beyond the header's scroll flourish.
+ */
 export function Landing(): JSX.Element {
-  const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-
-  const slotRef = useRef<HTMLDivElement>(null);
-  const modalCardRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
-  const firstRect = useRef<DOMRect | null>(null);
-  const closing = useRef(false);
 
   // Header appearance follows scroll position.
   useEffect(() => {
@@ -136,151 +130,40 @@ export function Landing(): JSX.Element {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  function openModal(): void {
-    if (open) return;
-    // Lock scroll first (the gutter is reserved, so this won't shift layout),
-    // then capture where the card sits in the hero before it leaves the flow.
-    document.documentElement.style.overflow = "hidden";
-    firstRect.current = slotRef.current?.getBoundingClientRect() ?? null;
-    if (slotRef.current && firstRect.current) {
-      // Reserve the hero space so the page behind the backdrop doesn't reflow.
-      slotRef.current.style.minHeight = `${firstRect.current.height}px`;
-    }
-    setOpen(true);
-  }
-
-  function finishClose(): void {
-    setOpen(false);
-    closing.current = false;
-    document.documentElement.style.overflow = "";
-    if (slotRef.current) slotRef.current.style.minHeight = "";
-  }
-
-  function closeModal(): void {
-    if (closing.current) return;
-    const card = modalCardRef.current;
-    const slot = slotRef.current;
-    if (!card || !slot || prefersReducedMotion()) {
-      finishClose();
-      return;
-    }
-    closing.current = true;
-    const first = card.getBoundingClientRect();
-    const last = slot.getBoundingClientRect();
-    backdropRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: 280,
-      easing: CLOSE_EASE,
-      fill: "forwards",
-    });
-    const dx = last.left - first.left;
-    const dy = last.top - first.top;
-    const sx = last.width / first.width;
-    const sy = last.height / first.height;
-    card.style.transformOrigin = "top left";
-    const anim = card.animate(
-      [
-        { transform: "none" },
-        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0.4 },
-      ],
-      { duration: 320, easing: CLOSE_EASE },
-    );
-    anim.onfinish = finishClose;
-  }
-
-  // The shared-element FLIP: morph the card from its hero rect to the centre.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const card = modalCardRef.current;
-    const first = firstRect.current;
-    if (!card || !first || prefersReducedMotion()) return;
-    const last = card.getBoundingClientRect();
-    const dx = first.left - last.left;
-    const dy = first.top - last.top;
-    const sx = first.width / last.width;
-    const sy = first.height / last.height;
-    card.style.transformOrigin = "top left";
-    card.style.willChange = "transform";
-    const anim = card.animate(
-      [{ transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` }, { transform: "none" }],
-      { duration: 460, easing: OPEN_EASE },
-    );
-    anim.onfinish = () => {
-      card.style.willChange = "";
-    };
-  }, [open]);
-
-  // Escape to close.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") closeModal();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  // Never leave the document scroll-locked if we unmount mid-transition
-  // (e.g. the user creates a space from inside the modal).
-  useEffect(
-    () => () => {
-      document.documentElement.style.overflow = "";
-    },
-    [],
-  );
-
   return (
     <div class="bg-grad min-h-full">
-      <SiteHeader scrolled={scrolled} onCreate={openModal} />
+      <SiteHeader scrolled={scrolled} />
       <main>
-        <Hero slotRef={slotRef} showCard={!open} onCreate={openModal} />
+        <Hero />
         <Features />
         <HowItWorks />
-        <Security onCreate={openModal} />
+        <Security />
         <Faq />
       </main>
       <SiteFooter />
-
-      {open &&
-        createPortal(
-          <div class="fixed inset-0 z-50 overflow-y-auto">
-            <div
-              ref={backdropRef}
-              class="animate-fade-in fixed inset-0 bg-[color-mix(in_srgb,#0a0a0c_60%,transparent)] backdrop-blur-[3px]"
-              onClick={closeModal}
-            />
-            <div class="pointer-events-none relative flex min-h-full items-center justify-center p-4">
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-label="Get started"
-                class="pointer-events-auto relative w-full max-w-[420px]"
-                ref={modalCardRef}
-              >
-                <div class="absolute -top-1 right-0 z-10 -translate-y-full pb-2">
-                  <IconButton
-                    label="Close"
-                    class="bg-surface/80 text-ink backdrop-blur hover:bg-surface"
-                    onClick={closeModal}
-                  >
-                    <X />
-                  </IconButton>
-                </div>
-                <OnboardingCard />
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
 
       <Toasts />
     </div>
   );
 }
 
-function SiteHeader({
-  scrolled,
-  onCreate,
-}: { scrolled: boolean; onCreate: () => void }): JSX.Element {
+/**
+ * The single way into the app. A real link: it is what a crawler follows, what
+ * "open in a new tab" opens, and — once the bundle is running — a client-side
+ * navigation rather than a reload.
+ */
+function OpenAppLink({
+  children,
+  class: cls,
+}: { children: preact.ComponentChildren; class?: string }): JSX.Element {
+  return (
+    <a href={APP_PATH} onClick={(event) => followLink(event as MouseEvent, APP_PATH)} class={cls}>
+      {children}
+    </a>
+  );
+}
+
+function SiteHeader({ scrolled }: { scrolled: boolean }): JSX.Element {
   return (
     <header
       class={cx(
@@ -314,31 +197,21 @@ function SiteHeader({
             FAQ
           </a>
         </nav>
-        <button
-          type="button"
-          onClick={onCreate}
+        <OpenAppLink
           class={cx(
             "inline-flex h-10 items-center gap-2 rounded-card bg-accent px-4 text-[14px] font-semibold text-on-accent shadow-accent transition-[opacity,transform] duration-300 hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[17px]",
             scrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1 opacity-0",
           )}
         >
-          Create space
+          Open the app
           <ArrowRight />
-        </button>
+        </OpenAppLink>
       </div>
     </header>
   );
 }
 
-function Hero({
-  slotRef,
-  showCard,
-  onCreate,
-}: {
-  slotRef: RefObject<HTMLDivElement>;
-  showCard: boolean;
-  onCreate: () => void;
-}): JSX.Element {
+function Hero(): JSX.Element {
   return (
     <section id="top" class="relative scroll-mt-20">
       <div class="mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 max-md:px-4 max-md:py-10 md:grid-cols-[1.05fr_0.95fr] md:py-24">
@@ -358,14 +231,10 @@ function Hero({
             server never receives it in readable form.
           </p>
           <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center">
-            <button
-              type="button"
-              onClick={onCreate}
-              class="inline-flex h-12 items-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]"
-            >
+            <OpenAppLink class="inline-flex h-12 items-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]">
               Create your private space
               <ArrowRight />
-            </button>
+            </OpenAppLink>
             <a
               href="#how"
               class="inline-flex h-12 items-center rounded-card bg-surface px-5 text-[15px] font-semibold text-ink shadow-soft transition hover:bg-surface-3 dark:bg-surface-2"
@@ -386,11 +255,78 @@ function Hero({
           </ul>
         </div>
 
-        <div ref={slotRef} class="mx-auto w-full max-w-[420px]">
-          {showCard && <OnboardingCard />}
+        <div class="mx-auto w-full max-w-[420px]">
+          <ChatPreview />
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * A still of the app, so the hero shows what the product *is* rather than a
+ * form. Deliberately inert markup: it is prerendered into the public HTML, and
+ * every real action on this page leads to /app.
+ */
+function ChatPreview(): JSX.Element {
+  return (
+    <div
+      aria-hidden="true"
+      class="w-full overflow-hidden rounded-xl3 bg-surface shadow-float max-md:rounded-xl2 dark:bg-surface-2"
+    >
+      <div class="flex items-center gap-2.5 border-b border-line px-4 py-3">
+        <span class="grid size-8 flex-none place-items-center rounded-[10px] bg-accent-soft text-accent [&_svg]:size-[17px]">
+          <MonitorSmartphone />
+        </span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate font-display text-[14.5px] font-semibold tracking-[-0.02em]">
+            Personal
+          </span>
+          <span class="block font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+            3 devices
+          </span>
+        </span>
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--c-success)_14%,transparent)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-success [&_svg]:size-3">
+          <Lock />
+          Encrypted
+        </span>
+      </div>
+
+      <div class="flex flex-col gap-2.5 px-4 py-5">
+        <div class="max-w-[85%] self-start rounded-xl2 rounded-bl-[6px] bg-surface-3 px-3.5 py-2.5 text-[13.5px] leading-relaxed">
+          https://rankmaker.net/template/best-video-game-sagas
+          <span class="mt-1 block font-mono text-[10px] text-muted">From My laptop · 09:41</span>
+        </div>
+
+        <div class="flex max-w-[85%] items-center gap-3 self-start rounded-xl2 rounded-bl-[6px] bg-surface-3 px-3.5 py-3">
+          <span class="grid size-9 flex-none place-items-center rounded-[10px] bg-accent-soft text-accent [&_svg]:size-[18px]">
+            <FileText />
+          </span>
+          <span class="min-w-0">
+            <span class="block truncate text-[13px] font-medium">contract-signed.pdf</span>
+            <span class="block font-mono text-[10px] text-muted">1.2 MB · downloaded</span>
+          </span>
+        </div>
+
+        <div class="max-w-[85%] self-end rounded-xl2 rounded-br-[6px] bg-accent px-3.5 py-2.5 text-[13.5px] leading-relaxed text-on-accent">
+          Marta · +1 (202) 555-0147
+          <span class="mt-1 flex items-center justify-end gap-1 font-mono text-[10px] opacity-80">
+            09:42
+            <CheckCheck class="size-3" />
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2.5 border-t border-line px-4 py-3">
+        <span class="grid size-8 flex-none place-items-center rounded-full bg-surface-3 text-muted [&_svg]:size-[17px]">
+          <Plus />
+        </span>
+        <span class="flex-1 text-[13px] text-muted">Write a message…</span>
+        <span class="grid size-8 flex-none place-items-center rounded-full bg-accent text-on-accent [&_svg]:size-[15px]">
+          <Send />
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -473,7 +409,7 @@ function HowItWorks(): JSX.Element {
   );
 }
 
-function Security({ onCreate }: { onCreate: () => void }): JSX.Element {
+function Security(): JSX.Element {
   const points = [
     {
       term: "Content encryption (AES-GCM 256)",
@@ -509,14 +445,10 @@ function Security({ onCreate }: { onCreate: () => void }): JSX.Element {
               ciphertext, public keys, authentication data, and delivery metadata — but not readable
               content or private device keys.
             </p>
-            <button
-              type="button"
-              onClick={onCreate}
-              class="mt-6 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent transition-[gap] hover:gap-3 [&_svg]:size-[17px]"
-            >
+            <OpenAppLink class="mt-6 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent transition-[gap] hover:gap-3 [&_svg]:size-[17px]">
               Create your private space
               <ArrowRight />
-            </button>
+            </OpenAppLink>
           </div>
           <dl class="grid gap-3 sm:grid-cols-2">
             {points.map(({ term, desc }) => (

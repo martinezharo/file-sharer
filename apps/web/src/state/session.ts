@@ -5,7 +5,6 @@ import {
   META_DEVICE_KEYPAIR,
   META_SESSION,
   META_SIGNING_KEYPAIR,
-  clearAll,
   metaGet,
   metaSet,
 } from "../db/store";
@@ -26,8 +25,15 @@ export const deviceKeyPair = signal<CryptoKeyPair | null>(null);
  */
 export const signingKeyPair = signal<CryptoKeyPair | null>(null);
 
-/** True once the app has finished its initial load from IndexedDB. */
+/**
+ * True once the app has finished its initial load from IndexedDB: the lock
+ * state and the list of spaces are known, so the UI can tell a returning device
+ * from a fresh one instead of flashing the wrong screen at both.
+ */
 export const ready = signal(false);
+
+/** A fatal startup problem that should be explained instead of leaving a spinner. */
+export const startupError = signal<string | null>(null);
 
 /**
  * The server no longer accepts this device's token (revoked, or wiped along
@@ -59,7 +65,7 @@ export function authHeaders(): Auth {
   return { token: current.deviceAuthToken };
 }
 
-/** Restore an existing session + keys from IndexedDB on startup. */
+/** Restore the active space's session + keys from its own database. */
 export async function loadSession(): Promise<void> {
   const [storedSession, storedKeyring, storedKeyPair, storedSigningKeyPair] = await Promise.all([
     metaGet<Session>(SESSION_KEY),
@@ -75,7 +81,6 @@ export async function loadSession(): Promise<void> {
     // exactly as it did, and grows an identity on its own (ensureSigningIdentity).
     signingKeyPair.value = storedSigningKeyPair ?? null;
   }
-  ready.value = true;
 }
 
 /**
@@ -122,9 +127,12 @@ export function applyKeyring(updated: Keyring): void {
   secretsChanged?.();
 }
 
-/** Leave the space and wipe all local data on this device. */
-export async function resetSession(): Promise<void> {
-  await clearAll();
+/**
+ * Drop the active space's secrets from memory. Storage is untouched: this is
+ * what closing a space, locking the device and leaving a space all start with,
+ * and only the last of those also deletes anything.
+ */
+export function clearSessionState(): void {
   session.value = null;
   keyring.value = null;
   deviceKeyPair.value = null;

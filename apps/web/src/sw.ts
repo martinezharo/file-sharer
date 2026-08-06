@@ -21,6 +21,7 @@ import {
   precacheAndRoute,
 } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
+import { listSpaces } from "./db/spaces";
 import { handleShareTarget } from "./sw/share-target";
 import {
   OUTBOX_FLUSH_MESSAGE,
@@ -50,12 +51,13 @@ clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// The public pages are real static HTML. Only the root app gets the SPA
-// fallback, so an unknown URL remains a 404 and search engines do not see the
-// application shell at every path. Never serve the API from cache.
+// The public pages are real static HTML. Only the app gets the SPA fallback —
+// the landing page and every space under /app — so an unknown URL remains a 404
+// and search engines do not see the application shell at every path. Never
+// serve the API from cache.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/(?:\?.*)?$/],
+    allowlist: [/^\/(?:\?.*)?$/, /^\/app(?:\/|\?|$)/],
     denylist: [/^\/api\//],
   }),
 );
@@ -86,12 +88,21 @@ async function flushOutboxInBackground(
   drainWithoutBackgroundSync = false,
 ): Promise<void> {
   while (true) {
-    // One file per pass keeps a multi-file selection resumable. With Background
+    // Every space, not just whichever one the app had open: a message queued in
+    // one space must not wait for the user to walk back into it. One file per
+    // space per pass keeps a multi-file selection resumable. With Background
     // Sync each successful pass registers the next; without it, the direct
     // message handoff continues here while the browser lets the worker live.
-    const result = await flushQueuedOutbox((message) => void broadcastUpdate(message), {
-      maxMessages: 1,
-    });
+    const result = { sent: 0, failed: 0, remaining: 0 };
+    for (const space of await listSpaces()) {
+      const flushed = await flushQueuedOutbox(
+        (message) => void broadcastUpdate(space.id, message),
+        { maxMessages: 1, spaceId: space.id },
+      );
+      result.sent += flushed.sent;
+      result.failed += flushed.failed;
+      result.remaining += flushed.remaining;
+    }
     if (result.remaining === 0) return;
 
     const madeProgress = result.sent + result.failed > 0;
@@ -121,8 +132,8 @@ async function registerNextOutboxSync(): Promise<boolean> {
 }
 
 /** Mirror persisted outbox updates into any open app windows (live UI). */
-async function broadcastUpdate(message: LocalMessage): Promise<void> {
-  const broadcast: OutboxUpdateBroadcast = { type: "outbox-message-updated", message };
+async function broadcastUpdate(spaceId: string, message: LocalMessage): Promise<void> {
+  const broadcast: OutboxUpdateBroadcast = { type: "outbox-message-updated", spaceId, message };
   const windows = await self.clients.matchAll({ type: "window" });
   for (const client of windows) {
     client.postMessage(broadcast);

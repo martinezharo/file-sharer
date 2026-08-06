@@ -18,15 +18,20 @@ const ROUNDS = 1_000;
 async function secrets(): Promise<VaultSecrets> {
   const key = await generateGroupKey();
   return {
-    session: {
-      groupId: "group-1",
-      deviceId: "device-1",
-      deviceName: "Laptop",
-      deviceAuthToken: "super-secret-token",
-    },
-    keyring: { current: 2, keys: [[2, await exportGroupKey(key)]] },
-    deviceKeyPair: { publicKey: "spki", privateKey: "pkcs8" },
-    signingKeyPair: null,
+    spaces: [
+      {
+        spaceId: "space-1",
+        session: {
+          groupId: "group-1",
+          deviceId: "device-1",
+          deviceName: "Laptop",
+          deviceAuthToken: "super-secret-token",
+        },
+        keyring: { current: 2, keys: [[2, await exportGroupKey(key)]] },
+        deviceKeyPair: { publicKey: "spki", privateKey: "pkcs8" },
+        signingKeyPair: null,
+      },
+    ],
     contentKey: "raw-content-key",
   };
 }
@@ -114,7 +119,7 @@ describe("sealVault / openVault", () => {
     const original = await secrets();
 
     const envelope = await sealVault(vaultKey, original, {
-      v: 1,
+      v: 2,
       method: "passphrase",
       salt,
       iterations: ROUNDS,
@@ -123,7 +128,7 @@ describe("sealVault / openVault", () => {
 
     expect(opened).toEqual(original);
     // The point of storing raw bytes: they have to come back as a working key.
-    const restored = await importGroupKey(opened.keyring.keys[0]![1]);
+    const restored = await importGroupKey((opened as VaultSecrets).spaces[0]!.keyring.keys[0]![1]);
     expect(restored.type).toBe("secret");
   });
 
@@ -132,7 +137,7 @@ describe("sealVault / openVault", () => {
     const { vaultKey } = await keysFromPassphrase("passphrase", salt, ROUNDS);
 
     const envelope = await sealVault(vaultKey, await secrets(), {
-      v: 1,
+      v: 2,
       method: "passphrase",
       salt,
       iterations: ROUNDS,
@@ -150,7 +155,7 @@ describe("sealVault / openVault", () => {
     const wrong = await keysFromPassphrase("correct horsf", salt, ROUNDS);
 
     const envelope = await sealVault(right.vaultKey, await secrets(), {
-      v: 1,
+      v: 2,
       method: "passphrase",
       salt,
       iterations: ROUNDS,
@@ -163,7 +168,7 @@ describe("sealVault / openVault", () => {
     const salt = newSalt();
     const { vaultKey } = await keysFromPassphrase("pw", salt, ROUNDS);
     const envelope = await sealVault(vaultKey, await secrets(), {
-      v: 1,
+      v: 2,
       method: "passphrase",
       salt,
       iterations: ROUNDS,

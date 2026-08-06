@@ -4,7 +4,8 @@
  * When the OS share sheet sends content to this app, it POSTs a
  * `multipart/form-data` body to `/share-target`. The page can't read that body
  * directly, so we intercept it here, stash the shared text + files in the
- * Cache Storage, and redirect into the app, which drains the stash on boot.
+ * Cache Storage, and redirect into the app, which drains the stash into the
+ * space the user opens.
  *
  * Keep this in sync with `SHARE_CACHE` / cache keys in src/share/incoming.ts.
  */
@@ -47,5 +48,5 @@ export async function handleShareTarget(request: Request): Promise<Response> {
   }
 
   // 303 turns the POST into a GET navigation to the app.
-  return Response.redirect("/?share-target=1", 303);
+  return Response.redirect("/app?share-target=1", 303);
 }

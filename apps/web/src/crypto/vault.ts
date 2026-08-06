@@ -52,7 +52,8 @@ export interface SealedBlob {
  * secret they are combined with.
  */
 export interface VaultEnvelope {
-  v: 1;
+  /** 1: one space's secrets inline. 2: every space this device holds. */
+  v: 1 | 2;
   method: LockMethod;
   /** PBKDF2 salt (base64url). Also the PRF salt for a passkey. */
   salt: string;
@@ -70,8 +71,8 @@ export interface SerializedKeyring {
   keys: [number, string][];
 }
 
-/** Everything the app cannot reconstruct on its own after a restart. */
-export interface VaultSecrets {
+/** One space's secrets: everything the app cannot reconstruct after a restart. */
+export interface SpaceSecrets {
   session: Session;
   keyring: SerializedKeyring;
   /**
@@ -81,9 +82,31 @@ export interface VaultSecrets {
    */
   deviceKeyPair: SerializedKeyPair | null;
   signingKeyPair: SerializedKeyPair | null;
-  /** Raw content key (base64url) encrypting local messages and files. */
+}
+
+/** A space's secrets plus the id that says which space they open. */
+export interface VaultSpaceSecrets extends SpaceSecrets {
+  spaceId: string;
+}
+
+/**
+ * What the envelope holds. A lock protects the device, so it covers every space
+ * at once: one secret, one unlock, all of them readable — and while locked, not
+ * one of them is.
+ */
+export interface VaultSecrets {
+  spaces: VaultSpaceSecrets[];
+  /** Raw content key (base64url) encrypting local messages, files and names. */
   contentKey: string;
 }
+
+/** A `v: 1` envelope, written when a device could only hold one space. */
+export interface VaultSecretsV1 extends SpaceSecrets {
+  contentKey: string;
+}
+
+/** What `openVault` can produce, before the caller normalises the version. */
+export type StoredVaultSecrets = VaultSecrets | VaultSecretsV1;
 
 /**
  * Bound as AAD to every vault ciphertext. It is a constant rather than
@@ -214,8 +237,8 @@ export async function sealVault(
  * verifier stored anywhere that an attacker could test guesses against offline
  * any faster than by attempting the decryption itself.
  */
-export function openVault(key: CryptoKey, envelope: VaultEnvelope): Promise<VaultSecrets> {
-  return open<VaultSecrets>(key, envelope.sealed, VAULT_AAD);
+export function openVault(key: CryptoKey, envelope: VaultEnvelope): Promise<StoredVaultSecrets> {
+  return open<StoredVaultSecrets>(key, envelope.sealed, VAULT_AAD);
 }
 
 /**

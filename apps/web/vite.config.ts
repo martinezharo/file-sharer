@@ -1,7 +1,25 @@
-import tailwindcss from "@tailwindcss/vite";
 import preact from "@preact/preset-vite";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+
+function cliValue(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  const value = index >= 0 ? process.argv[index + 1] : undefined;
+  return value && !value.startsWith("-") ? value : undefined;
+}
+
+// `pnpm dev --host <ip>` forwards the host to Vite and Wrangler. Keep the API
+// proxy on the same interface so a remote VPS development session does not
+// accidentally point at the browser's own localhost.
+const requestedHost = process.env.FILE_SHARER_DEV_HOST ?? cliValue("--host");
+const remoteHost =
+  requestedHost && !["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(requestedHost)
+    ? requestedHost
+    : undefined;
+const workerTarget =
+  process.env.FILE_SHARER_WORKER_URL ??
+  (remoteHost ? `http://${remoteHost}:8787` : "http://localhost:8787");
 
 export default defineConfig(({ isSsrBuild }) => ({
   plugins: [
@@ -40,7 +58,9 @@ export default defineConfig(({ isSsrBuild }) => ({
               theme_color: "#5b5bd6",
               background_color: "#f6f6f7",
               display: "standalone",
-              start_url: "/",
+              // The app opens on the spaces of this device, not the marketing
+              // page: an installed PWA has already been "landed on".
+              start_url: "/app",
               scope: "/",
               id: "/",
               icons: [
@@ -93,9 +113,10 @@ export default defineConfig(({ isSsrBuild }) => ({
   },
   server: {
     port: 5173,
+    ...(remoteHost ? { allowedHosts: [remoteHost, ".ts.net"] } : {}),
     proxy: {
       // In dev, forward API calls to the local Worker (wrangler dev).
-      "/api": { target: "http://localhost:8787", changeOrigin: true },
+      "/api": { target: workerTarget, changeOrigin: true },
     },
   },
 }));

@@ -5,6 +5,7 @@ import "@fontsource-variable/bricolage-grotesque/wght.css";
 import "@fontsource-variable/hanken-grotesk/wght.css";
 import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./styles.css";
+import { ready, startupError } from "./state/session";
 import { App } from "./ui/App";
 
 /**
@@ -39,5 +40,7 @@ if (root) {
   render(<App />, root);
   void bootstrap().catch((error: unknown) => {
     console.error("Could not start file-sharer", error);
+    startupError.value = error instanceof Error ? error.message : "Could not start file-sharer";
+    ready.value = true;
   });
 }

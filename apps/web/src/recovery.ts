@@ -41,11 +41,12 @@ import {
   open,
   seal,
 } from "./crypto/vault";
+import { startSession } from "./actions";
 import { META_RECOVERY_EPOCH, metaSet } from "./db/store";
-import { currentSecrets } from "./state/lock";
-import { loadMessages } from "./state/messages";
+import { activeSpaceSecrets } from "./state/lock";
+import { navigate, spacePath } from "./state/route";
 import { persistSession } from "./state/session";
-import { startSync } from "./sync/sync";
+import { activeSpace, beginSpace, forgetSpace } from "./state/spaces";
 import type { Session } from "./types";
 
 /** Bound as AAD, so a blob cannot be replayed as an at-rest vault or vice versa. */
@@ -75,6 +76,8 @@ interface RecoveryPayload {
   keyring: SerializedKeyring;
   deviceKeyPair: SerializedKeyPair;
   signingKeyPair: SerializedKeyPair | null;
+  /** The space's local name, so a restore doesn't come back nameless. */
+  spaceName?: string;
 }
 
 export class NoExportableKeysError extends Error {
@@ -130,14 +133,7 @@ export function normalizeRecoveryCode(code: string): string {
  * stored: this is the only moment it exists anywhere.
  */
 export async function createRecoveryFile(): Promise<{ file: RecoveryFile; code: string }> {
-  // The content key is irrelevant to a recovery file (a restored device derives
-  // its own), but `currentSecrets` is the one place that knows how to collect
-  // everything else, so it gets a throwaway.
-  const throwaway = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, [
-    "encrypt",
-    "decrypt",
-  ]);
-  const secrets = await currentSecrets(throwaway);
+  const secrets = await activeSpaceSecrets();
   if (!secrets.deviceKeyPair) throw new NoExportableKeysError();
 
   const code = generateRecoveryCode();
@@ -153,6 +149,7 @@ export async function createRecoveryFile(): Promise<{ file: RecoveryFile; code: 
     keyring: secrets.keyring,
     deviceKeyPair: secrets.deviceKeyPair,
     signingKeyPair: secrets.signingKeyPair,
+    ...(activeSpace.value?.name ? { spaceName: activeSpace.value.name } : {}),
   };
 
   const file: RecoveryFile = {
@@ -193,10 +190,12 @@ function parseRecoveryFile(text: string): RecoveryFile {
 }
 
 /**
- * Restore a space from a recovery file, replacing whatever this device holds.
+ * Restore a space from a recovery file, as a new space on this device.
  *
  * The restored device *is* the exported one — same id, same credential, same
  * keys — so it needs nothing from any other device to start working again.
+ * Nothing else on this device is touched: restoring is joining a space, and the
+ * others it already holds are none of this file's business.
  */
 export async function restoreFromRecoveryFile(text: string, code: string): Promise<void> {
   const file = parseRecoveryFile(text);
@@ -221,13 +220,19 @@ export async function restoreFromRecoveryFile(text: string, code: string): Promi
     ring.keys.set(epoch, await importGroupKey(raw));
   }
 
-  await persistSession(
-    payload.session,
-    ring,
-    await importDeviceKeyPair(payload.deviceKeyPair),
-    payload.signingKeyPair ? await importSigningKeyPair(payload.signingKeyPair) : undefined,
-  );
-  await metaSet(META_RECOVERY_EPOCH, ring.current);
-  await loadMessages();
-  startSync();
+  const space = await beginSpace(payload.spaceName ?? null);
+  try {
+    await persistSession(
+      payload.session,
+      ring,
+      await importDeviceKeyPair(payload.deviceKeyPair),
+      payload.signingKeyPair ? await importSigningKeyPair(payload.signingKeyPair) : undefined,
+    );
+    await metaSet(META_RECOVERY_EPOCH, ring.current);
+    await startSession();
+  } catch (error) {
+    await forgetSpace(space.id);
+    throw error;
+  }
+  navigate(spacePath(space.id));
 }

@@ -368,6 +368,13 @@ export interface PairingPayload {
    * verified view and every later change has to be attested by someone in it.
    */
   roster?: DeviceKeyBundle[];
+  /**
+   * The space's name as the introducer calls it, so the joining device shows
+   * the same one instead of an id. Local metadata that never reaches the
+   * server: it travels here precisely because this package is encrypted for
+   * the joining device alone. Absent when the space was never named.
+   */
+  spaceName?: string;
 }
 
 /** One device's public identity: what a signature is checked against. */

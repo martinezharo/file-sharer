@@ -41,10 +41,21 @@ router.patch("/api/devices/:id/role", updateDeviceRole);
 
 export { SpaceHub };
 
+/** `/app` and everything under it: the client-routed part of the site. */
+function isAppPath(pathname: string): boolean {
+  return pathname === "/app" || pathname.startsWith("/app/");
+}
+
 function redirectHttpToHttps(request: Request): Response | undefined {
   const url = new URL(request.url);
-  // Keep local Wrangler development on its configured HTTP port.
-  if (url.protocol !== "http:" || ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
+  // Keep local Wrangler development on its configured HTTP port. The port is
+  // also used when Wrangler is bound to a VPS/Tailscale IP instead of localhost;
+  // the browser still reaches the app through the HTTPS Vite/Tailscale proxy.
+  if (
+    url.protocol !== "http:" ||
+    url.port === "8787" ||
+    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  ) {
     return undefined;
   }
 
@@ -100,6 +111,17 @@ export default {
     }
 
     const isCanonicalOrigin = url.protocol === "https:" && url.hostname === CANONICAL_HOST;
+
+    // The app is a single page under /app: the spaces list and every space
+    // below it are the same shell, resolved client-side. The assets binding
+    // would 404 those paths (there is no file at /app/<id>), so they are served
+    // the shell here. It is never indexed: there is nothing public behind it,
+    // and each URL is local to one device.
+    if (isAppPath(url.pathname)) {
+      const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
+      return withSecurityHeaders(shell, { noIndex: true });
+    }
+
     return withSecurityHeaders(await env.ASSETS.fetch(request), {
       noIndex: !isCanonicalOrigin,
     });

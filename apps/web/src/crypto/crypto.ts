@@ -29,6 +29,34 @@ const SIG_HASH = "SHA-256";
 const CURVE = "P-256";
 const IV_BYTES = 12;
 
+/**
+ * Web Crypto's subtle API is intentionally unavailable on insecure origins
+ * (for example, an HTTP page opened through a LAN or Tailscale IP). This app
+ * cannot safely fall back to a JavaScript crypto implementation: an insecure
+ * origin could also be modified in transit before that implementation runs.
+ */
+export class SecureContextRequiredError extends Error {
+  constructor() {
+    super(
+      "End-to-end encryption requires a secure connection. Open file-sharer over HTTPS; HTTP only works on localhost during development.",
+    );
+    this.name = "SecureContextRequiredError";
+  }
+}
+
+/** Fail early with a useful message instead of `undefined.generateKey`. */
+export function assertWebCryptoAvailable(): void {
+  const webCrypto = globalThis.crypto;
+  if (
+    !webCrypto ||
+    typeof webCrypto.getRandomValues !== "function" ||
+    !webCrypto.subtle ||
+    typeof webCrypto.subtle.generateKey !== "function"
+  ) {
+    throw new SecureContextRequiredError();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Encoding helpers
 // ---------------------------------------------------------------------------

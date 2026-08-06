@@ -4,18 +4,21 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { cancelLinking, createSpace, linking, startLinking } from "../actions";
 import { renderQrToCanvas } from "../qr/generate";
 import { restoreFromRecoveryFile } from "../recovery";
+import { navigate, spacePath } from "../state/route";
 import { showToast } from "../state/ui";
 import { Button, Spinner } from "./components";
 
 type Mode = "choose" | "create" | "link" | "restore";
 
 /**
- * The sign-up / device-linking panel. Used as the primary call-to-action on
- * the landing page (the create / link buttons stay visible above the fold).
+ * The panel that brings a space onto this device: create a new one, link to one
+ * that exists, or restore one from a recovery file. Shown on `/app`, which is
+ * where spaces live.
  */
 export function OnboardingCard(): JSX.Element {
   const [mode, setMode] = useState<Mode>("choose");
   const [name, setName] = useState("");
+  const [spaceName, setSpaceName] = useState("");
   const [busy, setBusy] = useState(false);
   const link = linking.value;
 
@@ -23,7 +26,8 @@ export function OnboardingCard(): JSX.Element {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await createSpace(name.trim());
+      const space = await createSpace(name.trim(), spaceName);
+      navigate(spacePath(space.id));
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Could not create space", "error");
     } finally {
@@ -95,12 +99,25 @@ export function OnboardingCard(): JSX.Element {
           }}
         >
           <header class="mb-1">
-            <h2 class="text-[22px] tracking-[-0.02em]">Create your private space</h2>
+            <h2 class="text-[22px] tracking-[-0.02em]">Create a private space</h2>
             <p class="mt-1.5 text-sm leading-relaxed text-muted">
-              Give this device a name to get started — no account required.
+              Name the space and this device to get started — no account required.
             </p>
           </header>
-          <DeviceNameField value={name} onInput={setName} placeholder="e.g. My laptop" />
+          <TextField
+            label="Space name"
+            hint="Optional"
+            value={spaceName}
+            onInput={setSpaceName}
+            placeholder="e.g. Personal"
+            autoFocus
+          />
+          <TextField
+            label="Name this device"
+            value={name}
+            onInput={setName}
+            placeholder="e.g. My laptop"
+          />
           <div class="mt-1 flex flex-col gap-2">
             <Button variant="primary" type="submit" disabled={busy || !name.trim()}>
               {busy ? <Spinner /> : "Create space"}
@@ -239,25 +256,34 @@ function Choice({
   );
 }
 
-function DeviceNameField({
+function TextField({
+  label,
+  hint,
   value,
   onInput,
   placeholder,
+  autoFocus,
 }: {
+  label: string;
+  hint?: string;
   value: string;
   onInput: (v: string) => void;
   placeholder: string;
+  autoFocus?: boolean;
 }): JSX.Element {
   return (
     <label class="flex flex-col gap-1.5 text-left">
-      <span class="text-[13px] font-medium text-subtle">Name this device</span>
+      <span class="flex items-baseline justify-between gap-2 text-[13px] font-medium text-subtle">
+        {label}
+        {hint && <span class="text-[11.5px] font-normal text-muted">{hint}</span>}
+      </span>
       <input
         type="text"
         class="field-input"
         value={value}
         placeholder={placeholder}
         maxLength={64}
-        autoFocus
+        autoFocus={autoFocus}
         onInput={(e) => onInput((e.target as HTMLInputElement).value)}
       />
     </label>
@@ -292,7 +318,13 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
           onStart();
         }}
       >
-        <DeviceNameField value={name} onInput={setName} placeholder="e.g. My phone" />
+        <TextField
+          label="Name this device"
+          value={name}
+          onInput={setName}
+          placeholder="e.g. My phone"
+          autoFocus
+        />
         <div class="mt-1 flex flex-col gap-2">
           <Button variant="primary" type="submit" disabled={busy || !name.trim()}>
             {busy ? <Spinner /> : "Generate linking code"}

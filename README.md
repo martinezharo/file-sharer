@@ -134,6 +134,14 @@ pnpm install
 pnpm dev            # worker (wrangler dev) + web (vite) together
 ```
 
+The web app uses the browser Web Crypto API, so it must run in a secure context. `http://localhost`
+is allowed during development, but opening Vite through an HTTP LAN/Tailscale IP disables
+`crypto.subtle`. When testing from another device, expose the dev server over HTTPS (for example,
+with a dedicated Tailscale port such as
+`tailscale serve --https=8443 --bg http://<vps-tailnet-ip>:5173`, then open the HTTPS URL shown by
+`tailscale serve status`) or configure Vite with a trusted development certificate. Do not add a
+plaintext-HTTP crypto fallback.
+
 `pnpm dev` applies any pending local D1 migration before starting the Worker, so pulling a
 branch that adds one can't leave you with a schema the API doesn't match. See
 `apps/worker/README.md` for the one-time D1/R2 setup.

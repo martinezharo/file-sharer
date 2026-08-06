@@ -15,7 +15,7 @@ import {
 } from "../crypto/identity";
 import { type Keyring, keyForEpoch } from "../crypto/keyring";
 import { loadDeletions } from "../db/deletions";
-import { putFile } from "../db/store";
+import { activeSpace, putFile } from "../db/store";
 import {
   applyGlobalDeletion,
   applyMessageUpdate,
@@ -287,9 +287,10 @@ async function completeDueRotation(
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
     const data = event.data as Partial<OutboxUpdateBroadcast> | null;
-    if (data?.type === "outbox-message-updated" && data.message) {
-      applyMessageUpdate(data.message);
-    }
+    if (data?.type !== "outbox-message-updated" || !data.message) return;
+    // The worker flushes every space; only the open one is on screen.
+    if (data.spaceId !== activeSpace()) return;
+    applyMessageUpdate(data.message);
   });
 }
 

@@ -3,8 +3,9 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { sendFileMessages } from "../actions";
 import { getDroppedFiles, hasTransferFiles } from "../share/transfer";
+import { showSpaceSection } from "../state/route";
 import { session } from "../state/session";
-import { showToast, view } from "../state/ui";
+import { showToast } from "../state/ui";
 
 /**
  * Whole-window drag & drop: files dropped anywhere in the app are queued as
@@ -110,6 +111,6 @@ async function acceptDrop(data: DataTransfer | null): Promise<void> {
   }
 
   // Land on the chat so the queued messages are actually visible.
-  view.value = "chat";
+  showSpaceSection("chat");
   await sendFileMessages(files);
 }

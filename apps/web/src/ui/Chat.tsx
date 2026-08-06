@@ -35,7 +35,8 @@ import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
 import type { FileRef, LocalMessage } from "../types";
 import { cx, formatBytes, formatTime, IconButton, Spinner } from "./components";
-import { type MenuAnchor, MessageMenu } from "./MessageMenu";
+import type { MenuAnchor } from "./Menu";
+import { MessageMenu } from "./MessageMenu";
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 
