@@ -2,7 +2,6 @@ import { Check, ChevronRight, Copy, LifeBuoy, Link2, Plus, ShieldCheck } from "l
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { cancelLinking, createSpace, linking, startLinking } from "../actions";
-import { renderQrToCanvas } from "../qr/generate";
 import { restoreFromRecoveryFile } from "../recovery";
 import { navigate, spacePath } from "../state/route";
 import { showToast } from "../state/ui";
@@ -304,9 +303,19 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (link && canvasRef.current) {
-      void renderQrToCanvas(canvasRef.current, link.qrText);
-    }
+    if (!link) return;
+    let active = true;
+    void import("../qr/generate")
+      .then(({ renderQrToCanvas }) => {
+        if (active && canvasRef.current) return renderQrToCanvas(canvasRef.current, link.qrText);
+        return undefined;
+      })
+      .catch(() => {
+        if (active) showToast("Could not render the linking code", "error");
+      });
+    return () => {
+      active = false;
+    };
   }, [link?.qrText]);
 
   if (!link) {

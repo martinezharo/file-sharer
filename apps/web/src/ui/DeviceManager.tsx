@@ -364,18 +364,28 @@ function AddDeviceModal({
   useEffect(() => {
     if (tab !== "scan" || !videoRef.current) return;
     let active = true;
-    void startScanner(
-      videoRef.current,
-      (text) => {
-        if (!active) return;
-        scannerRef.current?.stop();
-        void submit(text);
-      },
-      (error) => setCameraError(error.message),
-    ).then((scanner) => {
-      scannerRef.current = scanner;
-      if (!active) scanner.stop();
-    });
+    void import("../qr/scan")
+      .then(({ startScanner }) => {
+        if (!active || !videoRef.current) return null;
+        return startScanner(
+          videoRef.current,
+          (text) => {
+            if (!active) return;
+            scannerRef.current?.stop();
+            void submit(text);
+          },
+          (error) => setCameraError(error.message),
+        );
+      })
+      .then((scanner) => {
+        if (!scanner) return;
+        scannerRef.current = scanner;
+        if (!active) scanner.stop();
+      })
+      .catch((error: unknown) => {
+        if (active)
+          setCameraError(error instanceof Error ? error.message : "QR scanner unavailable");
+      });
     return () => {
       active = false;
       scannerRef.current?.stop();
