@@ -35,6 +35,14 @@ export function boundedUploadBody(body: ReadableStream<Uint8Array>): {
   return { stream: body.pipeThrough(limiter), exceeded: () => exceeded };
 }
 
+async function discardUpload(env: RouteContext["env"], storageKey: string): Promise<void> {
+  try {
+    await env.FILES.delete(storageKey);
+  } catch {
+    // Preserve the original upload/body error; cleanup can be retried by TTL.
+  }
+}
+
 /**
  * Stream an already-encrypted file blob into R2. The body is opaque ciphertext;
  * the server never holds the key. The storage key is namespaced by the caller's
@@ -66,21 +74,30 @@ export async function uploadFile(c: RouteContext): Promise<Response> {
   const storageKey = fileStorageKey(auth.groupId, key);
   const bounded = boundedUploadBody(c.request.body);
   const fixed = new FixedLengthStream(length);
-  let object: R2Object;
-  try {
-    const copy = bounded.stream.pipeTo(fixed.writable);
-    const put = c.env.FILES.put(storageKey, fixed.readable, {
-      httpMetadata: { contentType: "application/octet-stream" },
-    });
-    [, object] = await Promise.all([copy, put]);
-  } catch {
+  const copy = bounded.stream.pipeTo(fixed.writable).then(
+    () => ({ ok: true as const }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  const put = c.env.FILES.put(storageKey, fixed.readable, {
+    httpMetadata: { contentType: "application/octet-stream" },
+  }).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+  const [copyResult, putResult] = await Promise.all([copy, put]);
+
+  if (!copyResult.ok) {
+    await discardUpload(c.env, storageKey);
     if (bounded.exceeded()) {
-      await c.env.FILES.delete(storageKey);
       throw new ApiError("payload_too_large", "File exceeds the 50 MB limit");
     }
-    await c.env.FILES.delete(storageKey);
     throw new ApiError("bad_request", "Request body does not match Content-Length");
   }
+  if (!putResult.ok) {
+    await discardUpload(c.env, storageKey);
+    throw putResult.error;
+  }
+  const object = putResult.value;
 
   // Defense-in-depth: enforce the cap on the real stored size too, in case a
   // storage implementation reports a size different from the stream counter.
