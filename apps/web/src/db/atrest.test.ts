@@ -9,6 +9,7 @@ import {
   sealBlob,
   sealJson,
   setContentKey,
+  setContentLocked,
 } from "./atrest";
 
 afterEach(() => setContentKey(null));
@@ -28,6 +29,13 @@ describe("without a content key", () => {
     setContentKey(null);
 
     expect(await openJson(sealed, "ctx")).toBeUndefined();
+  });
+
+  it("never falls back to cleartext writes while explicitly locked", async () => {
+    setContentLocked(true);
+
+    await expect(sealJson({ secret: true }, "ctx")).rejects.toThrow("Local content is locked");
+    await expect(sealBlob(new Blob(["secret"]), "ctx")).rejects.toThrow("Local content is locked");
   });
 });
 

@@ -31,9 +31,17 @@ const IV_BYTES = 12;
  * stored in the clear, exactly as before this existed) and while locked.
  */
 let contentKey: CryptoKey | null = null;
+let contentLocked = false;
 
 export function setContentKey(key: CryptoKey | null): void {
   contentKey = key;
+  contentLocked = false;
+}
+
+/** Mark the device locked before dropping the in-memory content key. */
+export function setContentLocked(locked: boolean): void {
+  contentLocked = locked;
+  if (locked) contentKey = null;
 }
 
 export function currentContentKey(): CryptoKey | null {
@@ -49,6 +57,11 @@ export type KeyChoice = CryptoKey | null | undefined;
 
 function resolve(key: KeyChoice): CryptoKey | null {
   return key === undefined ? contentKey : key;
+}
+
+function requireWritableKey(key: CryptoKey | null): CryptoKey | null {
+  if (!key && contentLocked) throw new Error("Local content is locked");
+  return key;
 }
 
 /** AES-GCM ciphertext plus its IV, both base64url. */
@@ -91,7 +104,7 @@ export async function sealJson(
   context: string,
   key?: KeyChoice,
 ): Promise<Sealed | null> {
-  const chosen = resolve(key);
+  const chosen = requireWritableKey(resolve(key));
   if (!chosen) return null;
   return seal(new TextEncoder().encode(JSON.stringify(value)), context, chosen);
 }
@@ -117,7 +130,7 @@ export async function sealBlob(
   context: string,
   key?: KeyChoice,
 ): Promise<{ iv: string; ct: ArrayBuffer } | null> {
-  const chosen = resolve(key);
+  const chosen = requireWritableKey(resolve(key));
   if (!chosen) return null;
   const iv = randomBytes(IV_BYTES);
   const ct = await crypto.subtle.encrypt(

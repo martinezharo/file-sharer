@@ -46,7 +46,7 @@ import {
   openVault,
   sealVault,
 } from "../crypto/vault";
-import { currentContentKey, setContentKey } from "../db/atrest";
+import { currentContentKey, setContentKey, setContentLocked } from "../db/atrest";
 import {
   GLOBAL_VAULT,
   LEGACY_SPACE_ID,
@@ -67,6 +67,7 @@ import {
   metaSet,
   rewriteLocalContent,
 } from "../db/store";
+import { stopSync } from "../sync/sync";
 import type { Session } from "../types";
 import {
   deviceKeyPair,
@@ -113,6 +114,7 @@ export class WrongSecretError extends Error {
  */
 export async function loadLockState(): Promise<void> {
   envelope = (await globalMetaGet<VaultEnvelope>(GLOBAL_VAULT)) ?? null;
+  setContentLocked(envelope !== null);
   lockConfigured.value = envelope !== null;
   lockMethod.value = envelope?.method ?? null;
   locked.value = envelope !== null;
@@ -231,7 +233,8 @@ export async function unlockWithPasskey(): Promise<void> {
  */
 export function lockNow(): void {
   if (!lockConfigured.value) return;
-  setContentKey(null);
+  stopSync();
+  setContentLocked(true);
   vaultKey = null;
   unlocked = null;
   session.value = null;

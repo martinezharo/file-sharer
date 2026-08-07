@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateRecoveryCode, normalizeRecoveryCode } from "./recovery";
+import {
+  BadRecoveryFileError,
+  generateRecoveryCode,
+  normalizeRecoveryCode,
+  parseRecoveryFile,
+} from "./recovery";
 
 describe("generateRecoveryCode", () => {
   it("is 32 characters in groups of four", () => {
@@ -43,5 +48,27 @@ describe("normalizeRecoveryCode", () => {
     const once = normalizeRecoveryCode("abcd-2345-o789-wxyz");
 
     expect(normalizeRecoveryCode(once)).toBe(once);
+  });
+});
+
+describe("parseRecoveryFile", () => {
+  const base = {
+    kind: "file-sharer-recovery",
+    v: 1,
+    createdAt: 1_700_000_000_000,
+    keyEpoch: 1,
+    salt: "salt",
+    iterations: 600_000,
+    sealed: { iv: "iv", ct: "ciphertext" },
+  };
+
+  it("rejects an iteration count that could turn restore into a CPU DoS", () => {
+    expect(() =>
+      parseRecoveryFile(JSON.stringify({ ...base, iterations: Number.MAX_SAFE_INTEGER })),
+    ).toThrow(BadRecoveryFileError);
+  });
+
+  it("accepts a structurally valid file", () => {
+    expect(parseRecoveryFile(JSON.stringify(base))).toMatchObject(base);
   });
 });

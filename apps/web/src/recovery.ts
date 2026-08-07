@@ -24,6 +24,7 @@
  */
 
 import { INITIAL_KEY_EPOCH } from "@file-sharer/shared";
+import { startSession } from "./actions";
 import {
   importDeviceKeyPair,
   importGroupKey,
@@ -40,8 +41,8 @@ import {
   newSalt,
   open,
   seal,
+  validatePbkdf2Iterations,
 } from "./crypto/vault";
-import { startSession } from "./actions";
 import { META_RECOVERY_EPOCH, metaSet } from "./db/store";
 import { activeSpaceSecrets } from "./state/lock";
 import { navigate, spacePath } from "./state/route";
@@ -172,7 +173,7 @@ export function recoveryFileName(file: RecoveryFile): string {
   return `file-sharer-recovery-${date}.json`;
 }
 
-function parseRecoveryFile(text: string): RecoveryFile {
+export function parseRecoveryFile(text: string): RecoveryFile {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -180,11 +181,32 @@ function parseRecoveryFile(text: string): RecoveryFile {
     throw new BadRecoveryFileError();
   }
   const file = parsed as Partial<RecoveryFile>;
-  if (file?.kind !== "file-sharer-recovery" || !file.sealed || !file.salt) {
+  if (
+    file?.kind !== "file-sharer-recovery" ||
+    file.v === undefined ||
+    typeof file.createdAt !== "number" ||
+    !Number.isSafeInteger(file.createdAt) ||
+    typeof file.keyEpoch !== "number" ||
+    !Number.isSafeInteger(file.keyEpoch) ||
+    file.keyEpoch < 1 ||
+    typeof file.salt !== "string" ||
+    file.salt.length === 0 ||
+    !file.sealed ||
+    typeof file.sealed !== "object" ||
+    typeof file.sealed.iv !== "string" ||
+    typeof file.sealed.ct !== "string"
+  ) {
     throw new BadRecoveryFileError();
   }
   if (file.v !== 1) {
     throw new BadRecoveryFileError("That recovery file was written by a newer version.");
+  }
+  if (file.iterations !== undefined) {
+    try {
+      validatePbkdf2Iterations(file.iterations);
+    } catch {
+      throw new BadRecoveryFileError("That recovery file has invalid key derivation settings.");
+    }
   }
   return file as RecoveryFile;
 }
