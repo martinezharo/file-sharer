@@ -11,7 +11,7 @@ import { authenticate, requireAdmin } from "../auth";
 import { ApiError, json } from "../errors";
 import {
   optionalString,
-  readJson,
+  readJsonObject,
   requireId,
   requireInt,
   requireSha256Hex,
@@ -28,7 +28,7 @@ import { clientIp, rateLimit } from "../security";
 export async function requestPairing(c: RouteContext): Promise<Response> {
   await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
   const pairingId = requireId(c.params.pairingId, "pairingId");
-  const body = await readJson<PairingRequestBody>(c.request);
+  const body = await readJsonObject<PairingRequestBody>(c.request);
   const device = body.device;
   if (!device || typeof device !== "object") {
     throw new ApiError("bad_request", "Missing device");
@@ -65,7 +65,7 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   requireAdmin(auth);
   const pairingId = requireId(c.params.pairingId, "pairingId");
-  const body = await readJson<PairingCompleteBody>(c.request);
+  const body = await readJsonObject<PairingCompleteBody>(c.request);
   // The package also carries the introducer's view of the device roster, so its
   // size grows with the space (a few hundred bytes per device).
   const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 65536);
@@ -142,17 +142,23 @@ export async function completePairing(c: RouteContext): Promise<Response> {
     throw new ApiError("conflict", "Device id already registered to another group");
   }
 
-  // Register the joining device (idempotent) and store the wrapped package. The
-  // name is encrypted client-side by this (existing) device, so the server only
-  // ever stores ciphertext for it. The `WHERE devices.group_id = excluded.group_id`
-  // guard is defense-in-depth: it makes the upsert a no-op for any cross-group row
-  // that slips past the check above rather than reactivating it.
-  await c.env.DB.batch([
+  // Register the joining device (idempotent) and store the wrapped package. Both
+  // statements are guarded by the slot's still-open state and the key epoch.
+  // This closes the race where a rotation commits between the epoch check above
+  // and this batch: a device must never be registered with a stale wrapped key.
+  // The `WHERE devices.group_id = excluded.group_id` guard also makes a
+  // cross-group id collision a no-op instead of reactivating a foreign device.
+  const results = await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO devices
          (id, group_id, name_enc, name_iv, public_key, signing_public_key, attestation,
           auth_token_hash, role, key_epoch, name_key_epoch, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'member', ?, ?, ?)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'member', ?, ?, ?
+        WHERE (SELECT key_epoch FROM groups WHERE id = ?) = ?
+          AND EXISTS (
+            SELECT 1 FROM pairing
+             WHERE pairing_id = ? AND wrapped_package IS NULL
+          )
        ON CONFLICT(id) DO UPDATE SET
          revoked_at = NULL,
          name_enc = excluded.name_enc,
@@ -177,13 +183,35 @@ export async function completePairing(c: RouteContext): Promise<Response> {
       keyEpoch,
       keyEpoch,
       now,
+      auth.groupId,
+      keyEpoch,
+      pairingId,
     ),
     c.env.DB.prepare(
       `UPDATE pairing
           SET group_id = ?, wrapped_package = ?, ephemeral_public_key = ?
-        WHERE pairing_id = ?`,
-    ).bind(auth.groupId, wrappedPackage, ephemeralPublicKey, pairingId),
+        WHERE pairing_id = ?
+          AND wrapped_package IS NULL
+          AND (SELECT key_epoch FROM groups WHERE id = ?) = ?
+          AND EXISTS (
+            SELECT 1 FROM devices
+             WHERE id = ? AND group_id = ? AND revoked_at IS NULL
+          )`,
+    ).bind(
+      auth.groupId,
+      wrappedPackage,
+      ephemeralPublicKey,
+      pairingId,
+      auth.groupId,
+      keyEpoch,
+      device.id,
+      auth.groupId,
+    ),
   ]);
+
+  if (results[0]?.meta.changes !== 1 || results[1]?.meta.changes !== 1) {
+    throw new ApiError("conflict", "Pairing became stale; start pairing again");
+  }
 
   return json({ ok: true } satisfies PairingCompleteResponse);
 }

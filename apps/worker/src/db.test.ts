@@ -62,6 +62,18 @@ describe("activeDevices", () => {
 });
 
 describe("purgeDeliveredMessages", () => {
+  it("processes more than one cleanup batch", async () => {
+    const { groupId, owner } = await seedSpace();
+    await Promise.all(Array.from({ length: 101 }, () => seedMessage(groupId, owner.id)));
+
+    await purgeDeliveredMessages(env, groupId);
+
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM messages WHERE group_id = ?")
+      .bind(groupId)
+      .first<{ n: number }>();
+    expect(row?.n).toBe(0);
+  });
+
   it("deletes a message once no delivery is pending, and its R2 object with it", async () => {
     const { groupId, owner } = await seedSpace();
     const member = await seedDevice(groupId);

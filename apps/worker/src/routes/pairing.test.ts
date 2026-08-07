@@ -3,6 +3,7 @@ import type {
   DeviceDescriptor,
   PairingCompleteBody,
   PairingPollResponse,
+  RotateKeyRequest,
 } from "@file-sharer/shared";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../auth";
@@ -24,6 +25,14 @@ function request(pairingId: string, device: unknown): Promise<Response> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ device }),
+  });
+}
+
+function rotate(adder: SeededDevice, body: RotateKeyRequest): Promise<Response> {
+  return SELF.fetch("https://x.dev/api/keys/rotate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeader(adder) },
+    body: JSON.stringify(body),
   });
 }
 
@@ -154,6 +163,39 @@ describe("POST /api/pairing/:id/complete", () => {
 
     expect(response.status).toBe(409);
     expect(await errorCode(response)).toBe("key_rotated");
+  });
+
+  it("does not let pairing and key rotation commit a stale device", async () => {
+    const { groupId, owner } = await seedSpace({ rotationPending: true });
+    const device = joiner();
+    const slot = uid("slot");
+    await request(slot, device);
+
+    const [pairingResponse, rotationResponse] = await Promise.all([
+      complete(slot, owner, device),
+      rotate(owner, { epoch: 2, wraps: [] }),
+    ]);
+
+    // One transaction must win the epoch/slot race. If pairing wins, rotation
+    // must retry with the new recipient; if rotation wins, pairing must not
+    // leave a device registered with a package encrypted for epoch 1.
+    expect([pairingResponse.status, rotationResponse.status].sort()).toEqual([200, 409]);
+    const group = await env.DB.prepare("SELECT key_epoch AS epoch FROM groups WHERE id = ?")
+      .bind(groupId)
+      .first<{ epoch: number }>();
+    const registered = await env.DB.prepare(
+      "SELECT key_epoch AS epoch FROM devices WHERE id = ? AND group_id = ?",
+    )
+      .bind(device.id, groupId)
+      .first<{ epoch: number }>();
+
+    if (rotationResponse.status === 200) {
+      expect(group?.epoch).toBe(2);
+      expect(registered).toBeNull();
+    } else {
+      expect(group?.epoch).toBe(1);
+      expect(registered?.epoch).toBe(1);
+    }
   });
 
   it("rejects a slot whose published key is not the one that was scanned", async () => {

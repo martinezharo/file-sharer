@@ -10,13 +10,26 @@
  * Keep this in sync with `SHARE_CACHE` / cache keys in src/share/incoming.ts.
  */
 
-const SHARE_CACHE = "share-target-v1";
+import {
+  MAX_SHARED_FILES,
+  SHARE_CACHE,
+  SHARE_META_KEY,
+  clearSharedCache,
+  sharedFileKey,
+} from "../share/cache";
 
 export async function handleShareTarget(request: Request): Promise<Response> {
   try {
     const formData = await request.formData();
-    const files = formData.getAll("files").filter((value): value is File => value instanceof File);
+    const files = formData
+      .getAll("files")
+      .filter((value): value is File => value instanceof File)
+      .slice(0, MAX_SHARED_FILES);
     const cache = await caches.open(SHARE_CACHE);
+    // The previous share may have contained more files. Clear the dedicated
+    // stash before replacing its metadata so stale files cannot be delivered
+    // by a later, smaller share.
+    await clearSharedCache(cache);
 
     const meta = {
       title: String(formData.get("title") ?? ""),
@@ -25,14 +38,14 @@ export async function handleShareTarget(request: Request): Promise<Response> {
       fileCount: files.length,
     };
     await cache.put(
-      "/__shared/meta",
+      SHARE_META_KEY,
       new Response(JSON.stringify(meta), { headers: { "Content-Type": "application/json" } }),
     );
 
     await Promise.all(
       files.map((file, index) =>
         cache.put(
-          `/__shared/file/${index}`,
+          sharedFileKey(index),
           new Response(file, {
             headers: {
               "Content-Type": file.type || "application/octet-stream",

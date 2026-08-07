@@ -1,5 +1,8 @@
 import type { Env } from "./env";
 
+/** Keep D1 batches comfortably below statement/parameter limits. */
+const DELETE_BATCH_SIZE = 100;
+
 /**
  * R2 object key, namespaced by group. The client only ever knows the bare
  * `key`; the server derives the storage key from the authenticated group, so a
@@ -42,21 +45,21 @@ async function deleteMessages(
   env: Env,
   messages: { id: string; groupId: string; fileKey: string | null }[],
 ): Promise<void> {
-  if (messages.length === 0) return;
+  for (let offset = 0; offset < messages.length; offset += DELETE_BATCH_SIZE) {
+    const batch = messages.slice(offset, offset + DELETE_BATCH_SIZE);
+    const fileKeys = batch
+      .filter((m) => m.fileKey)
+      .map((m) => fileStorageKey(m.groupId, m.fileKey as string));
+    if (fileKeys.length > 0) {
+      await env.FILES.delete(fileKeys);
+    }
 
-  const fileKeys = messages
-    .filter((m) => m.fileKey)
-    .map((m) => fileStorageKey(m.groupId, m.fileKey as string));
-  if (fileKeys.length > 0) {
-    // R2 supports deleting up to 1000 keys in one call.
-    await env.FILES.delete(fileKeys);
+    const stmts = batch.flatMap((m) => [
+      env.DB.prepare("DELETE FROM delivery_status WHERE message_id = ?").bind(m.id),
+      env.DB.prepare("DELETE FROM messages WHERE id = ?").bind(m.id),
+    ]);
+    await env.DB.batch(stmts);
   }
-
-  const stmts = messages.flatMap((m) => [
-    env.DB.prepare("DELETE FROM delivery_status WHERE message_id = ?").bind(m.id),
-    env.DB.prepare("DELETE FROM messages WHERE id = ?").bind(m.id),
-  ]);
-  await env.DB.batch(stmts);
 }
 
 /**
@@ -65,19 +68,23 @@ async function deleteMessages(
  * device revocation frees up the last pending delivery.
  */
 export async function purgeDeliveredMessages(env: Env, groupId: string): Promise<void> {
-  const rows = await env.DB.prepare(
-    `SELECT m.id AS id, m.group_id AS groupId, m.file_r2_key AS fileKey
-       FROM messages m
-      WHERE m.group_id = ?
-        AND NOT EXISTS (
-          SELECT 1 FROM delivery_status ds
-           WHERE ds.message_id = m.id AND ds.downloaded_at IS NULL
-        )`,
-  )
-    .bind(groupId)
-    .all<{ id: string; groupId: string; fileKey: string | null }>();
-
-  await deleteMessages(env, rows.results);
+  while (true) {
+    const rows = await env.DB.prepare(
+      `SELECT m.id AS id, m.group_id AS groupId, m.file_r2_key AS fileKey
+         FROM messages m
+        WHERE m.group_id = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM delivery_status ds
+             WHERE ds.message_id = m.id AND ds.downloaded_at IS NULL
+          )
+        ORDER BY m.created_at ASC, m.id ASC
+        LIMIT ?`,
+    )
+      .bind(groupId, DELETE_BATCH_SIZE)
+      .all<{ id: string; groupId: string; fileKey: string | null }>();
+    if (rows.results.length === 0) break;
+    await deleteMessages(env, rows.results);
+  }
 }
 
 /** Delete one message (and its R2 object) by id. Returns true if it existed. */
@@ -116,10 +123,17 @@ export async function deleteGroupMessage(env: Env, groupId: string, id: string):
 
 /** Delete messages (and files) older than `olderThan` epoch ms across all groups. */
 export async function purgeExpiredMessages(env: Env, olderThan: number): Promise<void> {
-  const rows = await env.DB.prepare(
-    "SELECT id, group_id AS groupId, file_r2_key AS fileKey FROM messages WHERE created_at < ?",
-  )
-    .bind(olderThan)
-    .all<{ id: string; groupId: string; fileKey: string | null }>();
-  await deleteMessages(env, rows.results);
+  while (true) {
+    const rows = await env.DB.prepare(
+      `SELECT id, group_id AS groupId, file_r2_key AS fileKey
+         FROM messages
+        WHERE created_at < ?
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?`,
+    )
+      .bind(olderThan, DELETE_BATCH_SIZE)
+      .all<{ id: string; groupId: string; fileKey: string | null }>();
+    if (rows.results.length === 0) break;
+    await deleteMessages(env, rows.results);
+  }
 }

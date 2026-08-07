@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { exportGroupKey, generateGroupKey, importGroupKey } from "./crypto";
 import {
+  MAX_PBKDF2_ITERATIONS,
   MIN_PASSPHRASE_LENGTH,
   type VaultSecrets,
   keysFromPassphrase,
@@ -44,6 +45,12 @@ describe("keysFromPassphrase", () => {
 
     const blob = await seal(a.vaultKey, { hello: "world" }, "ctx");
     expect(await open(b.vaultKey, blob, "ctx")).toEqual({ hello: "world" });
+  });
+
+  it("rejects an unsafe iteration count before deriving", async () => {
+    await expect(keysFromPassphrase("pw", newSalt(), MAX_PBKDF2_ITERATIONS + 1)).rejects.toThrow(
+      "Invalid PBKDF2 iteration count",
+    );
   });
 
   it("produces a different key for a different salt", async () => {

@@ -10,14 +10,14 @@
  * Keep `SHARE_CACHE` and the cache keys in sync with src/sw/share-target.ts.
  */
 
-const SHARE_CACHE = "share-target-v1";
-
-interface ShareMeta {
-  title: string;
-  text: string;
-  url: string;
-  fileCount: number;
-}
+import {
+  MAX_SHARED_FILES,
+  SHARE_CACHE,
+  SHARE_META_KEY,
+  type SharedMeta,
+  clearSharedCache,
+  sharedFileKey,
+} from "./cache";
 
 /** Text and files handed over by the OS share sheet. */
 export interface SharedContent {
@@ -50,22 +50,33 @@ export async function takeSharedContent(): Promise<SharedContent> {
   const cache = await caches.open(SHARE_CACHE);
 
   const meta = await readMeta(cache);
-  const files = await readFiles(cache, meta.fileCount);
-
-  await Promise.all([
-    cache.delete("/__shared/meta"),
-    ...Array.from({ length: meta.fileCount }, (_, i) => cache.delete(`/__shared/file/${i}`)),
-  ]);
-
-  return { text: joinSharedText(meta), files };
+  try {
+    return { text: joinSharedText(meta), files: await readFiles(cache, meta.fileCount) };
+  } finally {
+    // Clearing by prefix also removes files left behind when an earlier share
+    // was interrupted or contained more files than the current metadata.
+    await clearSharedCache(cache);
+  }
 }
 
-async function readMeta(cache: Cache): Promise<ShareMeta> {
-  const fallback: ShareMeta = { title: "", text: "", url: "", fileCount: 0 };
-  const response = await cache.match("/__shared/meta");
+async function readMeta(cache: Cache): Promise<SharedMeta> {
+  const fallback: SharedMeta = { title: "", text: "", url: "", fileCount: 0 };
+  const response = await cache.match(SHARE_META_KEY);
   if (!response) return fallback;
   try {
-    return { ...fallback, ...((await response.json()) as Partial<ShareMeta>) };
+    const raw = (await response.json()) as Partial<SharedMeta>;
+    return {
+      title: typeof raw.title === "string" ? raw.title : fallback.title,
+      text: typeof raw.text === "string" ? raw.text : fallback.text,
+      url: typeof raw.url === "string" ? raw.url : fallback.url,
+      fileCount:
+        typeof raw.fileCount === "number" &&
+        Number.isSafeInteger(raw.fileCount) &&
+        raw.fileCount >= 0 &&
+        raw.fileCount <= MAX_SHARED_FILES
+          ? raw.fileCount
+          : fallback.fileCount,
+    };
   } catch {
     return fallback;
   }
@@ -74,17 +85,27 @@ async function readMeta(cache: Cache): Promise<ShareMeta> {
 async function readFiles(cache: Cache, count: number): Promise<File[]> {
   const files: File[] = [];
   for (let i = 0; i < count; i++) {
-    const response = await cache.match(`/__shared/file/${i}`);
+    const response = await cache.match(sharedFileKey(i));
     if (!response) continue;
-    const blob = await response.blob();
-    const name = decodeURIComponent(response.headers.get("X-Share-Filename") ?? `shared-${i}`);
-    files.push(new File([blob], name, { type: blob.type }));
+    try {
+      const blob = await response.blob();
+      let name = response.headers.get("X-Share-Filename") ?? `shared-${i}`;
+      try {
+        name = decodeURIComponent(name);
+      } catch {
+        // A malformed cache entry must not prevent the rest of a share from
+        // being delivered.
+      }
+      files.push(new File([blob], name, { type: blob.type }));
+    } catch {
+      // Continue draining the other files and clear this one in the finally.
+    }
   }
   return files;
 }
 
 /** Combine title/text/url into one message, dropping empties and duplicates. */
-function joinSharedText(meta: ShareMeta): string {
+function joinSharedText(meta: SharedMeta): string {
   const parts: string[] = [];
   for (const value of [meta.title, meta.text, meta.url]) {
     const trimmed = value.trim();

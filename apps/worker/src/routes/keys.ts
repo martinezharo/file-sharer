@@ -8,7 +8,7 @@ import type {
 import { authenticate } from "../auth";
 import { activeDevices } from "../db";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireInt, requireString } from "../http";
+import { readJsonObject, requireId, requireInt, requireString } from "../http";
 import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
@@ -33,7 +33,7 @@ const MAX_WRAPPED_KEY = 2048;
 export async function rotateKey(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   await rateLimit(c.env, "RL_WRITE", auth.deviceId);
-  const body = await readJson<RotateKeyRequest>(c.request);
+  const body = await readJsonObject<RotateKeyRequest>(c.request);
 
   if (!auth.rotationPending) {
     throw new ApiError("conflict", "No key rotation is due for this space");
@@ -80,20 +80,17 @@ export async function rotateKey(c: RouteContext): Promise<Response> {
   // on `groups` runs last. Two devices rotating at once therefore produce one
   // winner and one caller whose batch is a complete no-op — never a split brain
   // where some devices got epoch N from one rotation and some from another.
-  const guarded = (sql: string, binds: unknown[]) =>
-    c.env.DB.prepare(`${sql} AND (SELECT key_epoch FROM groups WHERE id = ?) = ?`).bind(
-      ...binds,
-      auth.groupId,
-      previousEpoch,
-    );
-
   const statements = [
     ...wraps.map((wrap) =>
       c.env.DB.prepare(
         `INSERT INTO key_distribution
            (group_id, epoch, device_id, wrapped_key, ephemeral_public_key, created_at)
          SELECT ?, ?, ?, ?, ?, ?
-          WHERE (SELECT key_epoch FROM groups WHERE id = ?) = ?`,
+          WHERE (SELECT key_epoch FROM groups WHERE id = ?) = ?
+            AND EXISTS (
+              SELECT 1 FROM devices
+               WHERE id = ? AND group_id = ? AND revoked_at IS NULL
+            )`,
       ).bind(
         auth.groupId,
         epoch,
@@ -103,13 +100,46 @@ export async function rotateKey(c: RouteContext): Promise<Response> {
         now,
         auth.groupId,
         previousEpoch,
+        wrap.deviceId,
+        auth.groupId,
       ),
     ),
     // The rotating device adopts the new key by construction: it generated it.
-    guarded("UPDATE devices SET key_epoch = ? WHERE id = ?", [epoch, auth.deviceId]),
     c.env.DB.prepare(
-      "UPDATE groups SET key_epoch = ?, rotation_pending = 0 WHERE id = ? AND key_epoch = ?",
-    ).bind(epoch, auth.groupId, previousEpoch),
+      `UPDATE devices
+          SET key_epoch = ?
+        WHERE id = ? AND group_id = ? AND revoked_at IS NULL AND key_epoch = ?`,
+    ).bind(epoch, auth.deviceId, auth.groupId, previousEpoch),
+    c.env.DB.prepare(
+      `UPDATE groups
+          SET key_epoch = ?, rotation_pending = 0
+        WHERE id = ? AND key_epoch = ? AND rotation_pending = 1
+          AND EXISTS (
+            SELECT 1 FROM devices
+             WHERE id = ? AND group_id = ? AND revoked_at IS NULL AND key_epoch = ?
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM devices AS d
+             WHERE d.group_id = ?
+               AND d.revoked_at IS NULL
+               AND d.id != ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM key_distribution AS kd
+                  WHERE kd.group_id = ? AND kd.epoch = ? AND kd.device_id = d.id
+               )
+          )`,
+    ).bind(
+      epoch,
+      auth.groupId,
+      previousEpoch,
+      auth.deviceId,
+      auth.groupId,
+      epoch,
+      auth.groupId,
+      auth.deviceId,
+      auth.groupId,
+      epoch,
+    ),
   ];
 
   const results = await c.env.DB.batch(statements);

@@ -3,6 +3,7 @@ import { ApiError } from "./errors";
 import {
   optionalString,
   readJson,
+  readJsonObject,
   requireId,
   requireInt,
   requireSha256Hex,
@@ -49,6 +50,34 @@ describe("readJson", () => {
     });
 
     expect(await readJson(request)).toEqual({ a: 1 });
+  });
+
+  it("rejects a streaming body that exceeds the limit", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(2 * 1024 * 1024));
+        controller.enqueue(new Uint8Array(1));
+        controller.close();
+      },
+    });
+    const request = new Request("https://x.dev/api/thing", {
+      method: "POST",
+      body: stream,
+      // @ts-expect-error - required by undici for a streaming body
+      duplex: "half",
+    });
+
+    await rejectsWith(() => readJson(request), "payload_too_large");
+  });
+});
+
+describe("readJsonObject", () => {
+  it.each(["null", "[]", '"text"', "42"])("rejects JSON %s", async (body) => {
+    await rejectsWith(() => readJsonObject(jsonRequest(body)), "bad_request");
+  });
+
+  it("accepts an object", async () => {
+    expect(await readJsonObject<{ a: number }>(jsonRequest('{"a":1}'))).toEqual({ a: 1 });
   });
 });
 

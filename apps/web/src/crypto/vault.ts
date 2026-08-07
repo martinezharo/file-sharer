@@ -36,6 +36,16 @@ const SALT_BYTES = 16;
  */
 export const PBKDF2_ITERATIONS = 600_000;
 
+/** Hard upper bound for iteration counts loaded from local/imported envelopes. */
+export const MAX_PBKDF2_ITERATIONS = PBKDF2_ITERATIONS * 4;
+
+/** Reject corrupt metadata before Web Crypto can spend unbounded CPU. */
+export function validatePbkdf2Iterations(iterations: number): void {
+  if (!Number.isSafeInteger(iterations) || iterations < 1 || iterations > MAX_PBKDF2_ITERATIONS) {
+    throw new Error("Invalid PBKDF2 iteration count");
+  }
+}
+
 /** How the wrapping secret is obtained on unlock. */
 export type LockMethod = "passphrase" | "passkey";
 
@@ -137,6 +147,7 @@ async function deriveKeys(
   salt: ArrayBuffer,
   iterations: number,
 ): Promise<{ vaultKey: CryptoKey; hkdf: CryptoKey }> {
+  validatePbkdf2Iterations(iterations);
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     material,

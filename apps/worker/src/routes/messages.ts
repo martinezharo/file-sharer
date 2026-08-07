@@ -8,7 +8,7 @@ import type {
 import { authenticate } from "../auth";
 import { activeDeviceIds, deleteGroupMessage, deleteMessageById, fileStorageKey } from "../db";
 import { ApiError, json } from "../errors";
-import { optionalString, readJson, requireId, requireInt } from "../http";
+import { optionalString, readJsonObject, requireId, requireInt } from "../http";
 import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
@@ -18,7 +18,7 @@ import { pendingKeysFor } from "./keys";
 export async function sendMessage(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   await rateLimit(c.env, "RL_WRITE", auth.deviceId);
-  const body = await readJson<SendMessageRequest>(c.request);
+  const body = await readJsonObject<SendMessageRequest>(c.request);
 
   const id = requireId(body.id, "id");
   const keyEpoch = requireInt(body.keyEpoch, "keyEpoch", 1, Number.MAX_SAFE_INTEGER);
@@ -34,6 +34,19 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
     body.deletesMessageId === undefined
       ? undefined
       : requireId(body.deletesMessageId, "deletesMessageId");
+
+  // Keep optional ciphertext fields paired with their payload. Without these
+  // invariants a malformed client could store a record that the receiver
+  // partially renders and acknowledges, silently losing the other half.
+  if (!encryptedPayload && iv) {
+    throw new ApiError("bad_request", "iv requires encryptedPayload");
+  }
+  if (!fileR2Key && (fileIv || fileMeta || fileMetaIv)) {
+    throw new ApiError("bad_request", "File metadata requires fileR2Key");
+  }
+  if (fileR2Key && (!fileIv || !fileMeta || !fileMetaIv)) {
+    throw new ApiError("bad_request", "A file requires iv and encrypted metadata");
+  }
 
   // A device whose peers hold a signing key for it must sign, or they would
   // reject the message as a downgrade. Catching it here turns a client bug into

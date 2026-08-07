@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { fileStorageKey } from "../db";
 import type { SeededDevice } from "../test/helpers";
 import { authHeader, errorCode, seedSpace } from "../test/helpers";
+import { boundedUploadBody } from "./files";
 
 function upload(
   device: SeededDevice,
@@ -44,9 +45,7 @@ describe("PUT /api/files/:key", () => {
     expect(await (await env.FILES.get(fileStorageKey(b.groupId, "shared")))?.text()).toBe("from-b");
   });
 
-  it("requires Content-Length, so the cap is enforced before anything is stored", async () => {
-    // Without it a chunked body could only be measured after being consumed
-    // and written to R2 — bandwidth and writes already spent.
+  it("requires Content-Length so R2 can stream a fixed-length body", async () => {
     const { owner } = await seedSpace();
     const stream = new ReadableStream({
       start(controller) {
@@ -65,6 +64,22 @@ describe("PUT /api/files/:key", () => {
 
     expect(response.status).toBe(400);
     expect(await errorCode(response)).toBe("bad_request");
+  });
+
+  it("stops the bounded stream at the first byte over the limit", async () => {
+    const source = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(MAX_UPLOAD_SIZE));
+        controller.enqueue(new Uint8Array(1));
+        controller.close();
+      },
+    });
+    const bounded = boundedUploadBody(source);
+    const reader = bounded.stream.getReader();
+
+    await reader.read();
+    await expect(reader.read()).rejects.toThrow("upload_too_large");
+    expect(bounded.exceeded()).toBe(true);
   });
 
   it("rejects an oversized upload from the header alone", async () => {
