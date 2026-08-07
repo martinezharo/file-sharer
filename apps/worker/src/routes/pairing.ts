@@ -11,7 +11,7 @@ import { authenticate, requireAdmin } from "../auth";
 import { ApiError, json } from "../errors";
 import {
   optionalString,
-  readJson,
+  readJsonObject,
   requireId,
   requireInt,
   requireSha256Hex,
@@ -28,7 +28,7 @@ import { clientIp, rateLimit } from "../security";
 export async function requestPairing(c: RouteContext): Promise<Response> {
   await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
   const pairingId = requireId(c.params.pairingId, "pairingId");
-  const body = await readJson<PairingRequestBody>(c.request);
+  const body = await readJsonObject<PairingRequestBody>(c.request);
   const device = body.device;
   if (!device || typeof device !== "object") {
     throw new ApiError("bad_request", "Missing device");
@@ -65,7 +65,7 @@ export async function completePairing(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   requireAdmin(auth);
   const pairingId = requireId(c.params.pairingId, "pairingId");
-  const body = await readJson<PairingCompleteBody>(c.request);
+  const body = await readJsonObject<PairingCompleteBody>(c.request);
   // The package also carries the introducer's view of the device roster, so its
   // size grows with the space (a few hundred bytes per device).
   const wrappedPackage = requireString(body.wrappedPackage, "wrappedPackage", 65536);

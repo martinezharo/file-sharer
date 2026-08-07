@@ -12,7 +12,7 @@ import { parseAttestation } from "../attestation";
 import { authenticate, requireAdmin, requireOwner } from "../auth";
 import { purgeDeliveredMessages } from "../db";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireString } from "../http";
+import { readJsonObject, requireId, requireString } from "../http";
 import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 
@@ -125,7 +125,7 @@ export async function revokeDevice(c: RouteContext): Promise<Response> {
  */
 export async function publishSigningKey(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
-  const body = await readJson<PublishSigningKeyRequest>(c.request);
+  const body = await readJsonObject<PublishSigningKeyRequest>(c.request);
   const signingPublicKey = requireString(body.signingPublicKey, "signingPublicKey", 2048);
 
   const result = await c.env.DB.prepare(
@@ -151,7 +151,7 @@ export async function updateDeviceRole(c: RouteContext): Promise<Response> {
     throw new ApiError("bad_request", "Transfer ownership before changing your own role");
   }
 
-  const body = await readJson<UpdateDeviceRoleRequest>(c.request);
+  const body = await readJsonObject<UpdateDeviceRoleRequest>(c.request);
   if (body.role !== "admin" && body.role !== "member") {
     throw new ApiError("bad_request", "Role must be admin or member");
   }

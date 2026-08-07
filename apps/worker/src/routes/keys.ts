@@ -8,7 +8,7 @@ import type {
 import { authenticate } from "../auth";
 import { activeDevices } from "../db";
 import { ApiError, json } from "../errors";
-import { readJson, requireId, requireInt, requireString } from "../http";
+import { readJsonObject, requireId, requireInt, requireString } from "../http";
 import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
@@ -33,7 +33,7 @@ const MAX_WRAPPED_KEY = 2048;
 export async function rotateKey(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   await rateLimit(c.env, "RL_WRITE", auth.deviceId);
-  const body = await readJson<RotateKeyRequest>(c.request);
+  const body = await readJsonObject<RotateKeyRequest>(c.request);
 
   if (!auth.rotationPending) {
     throw new ApiError("conflict", "No key rotation is due for this space");

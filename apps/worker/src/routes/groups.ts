@@ -1,7 +1,13 @@
 import type { CreateGroupRequest, CreateGroupResponse } from "@file-sharer/shared";
 import { optionalAttestation } from "../attestation";
 import { ApiError, json } from "../errors";
-import { optionalString, readJson, requireId, requireSha256Hex, requireString } from "../http";
+import {
+  optionalString,
+  readJsonObject,
+  requireId,
+  requireSha256Hex,
+  requireString,
+} from "../http";
 import type { RouteContext } from "../router";
 import { clientIp, rateLimit } from "../security";
 
@@ -13,7 +19,7 @@ import { clientIp, rateLimit } from "../security";
  */
 export async function createGroup(c: RouteContext): Promise<Response> {
   await rateLimit(c.env, "RL_PUBLIC", clientIp(c.request));
-  const body = await readJson<CreateGroupRequest>(c.request);
+  const body = await readJsonObject<CreateGroupRequest>(c.request);
   const groupId = requireId(body.groupId, "groupId");
   const deviceAuthTokenHash = requireSha256Hex(body.deviceAuthTokenHash, "deviceAuthTokenHash");
   const device = body.device;

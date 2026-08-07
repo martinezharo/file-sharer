@@ -8,17 +8,72 @@ import { ApiError } from "./errors";
  */
 const MAX_JSON_BODY_SIZE = 2 * 1024 * 1024;
 
-/** Parse a JSON request body, raising a typed 400/413 on invalid input. */
+/**
+ * Read at most the configured JSON body limit before parsing it.
+ *
+ * Checking Content-Length is useful as a cheap early rejection, but it is an
+ * untrusted header and chunked requests do not have one. Reading through the
+ * stream keeps the limit effective for both forms instead of letting
+ * `Request.json()` buffer an arbitrarily large body first.
+ */
 export async function readJson<T>(request: Request): Promise<T> {
   const contentLength = request.headers.get("content-length");
-  if (contentLength && Number(contentLength) > MAX_JSON_BODY_SIZE) {
-    throw new ApiError("payload_too_large", "Request body too large");
+  if (contentLength !== null) {
+    const length = Number(contentLength);
+    if (!Number.isFinite(length) || length < 0) {
+      throw new ApiError("bad_request", "Invalid Content-Length");
+    }
+    if (length > MAX_JSON_BODY_SIZE) {
+      throw new ApiError("payload_too_large", "Request body too large");
+    }
   }
+
   try {
-    return (await request.json()) as T;
-  } catch {
+    const body = request.body;
+    if (!body) throw new Error("empty body");
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_JSON_BODY_SIZE) {
+          try {
+            await reader.cancel();
+          } catch {
+            // The body is already unusable; the size error is the useful one.
+          }
+          throw new ApiError("payload_too_large", "Request body too large");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError("bad_request", "Invalid JSON body");
   }
+}
+
+/** Parse a JSON object body, rejecting null, arrays and primitive JSON values. */
+export async function readJsonObject<T>(request: Request): Promise<T> {
+  const body = await readJson<unknown>(request);
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError("bad_request", "JSON body must be an object");
+  }
+  return body as T;
 }
 
 /** Assert a value is a non-empty string within an optional length bound. */

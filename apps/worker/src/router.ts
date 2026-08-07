@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { ApiError } from "./errors";
 
 export interface RouteContext {
   request: Request;
@@ -57,7 +58,11 @@ export class Router {
         const part = route.parts[i]!;
         const seg = segments[i]!;
         if (part.startsWith(":")) {
-          params[part.slice(1)] = decodeURIComponent(seg);
+          try {
+            params[part.slice(1)] = decodeURIComponent(seg);
+          } catch {
+            throw new ApiError("bad_request", "Invalid URL path");
+          }
         } else if (part !== seg) {
           matched = false;
           break;

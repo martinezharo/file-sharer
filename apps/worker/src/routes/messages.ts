@@ -8,7 +8,7 @@ import type {
 import { authenticate } from "../auth";
 import { activeDeviceIds, deleteGroupMessage, deleteMessageById, fileStorageKey } from "../db";
 import { ApiError, json } from "../errors";
-import { optionalString, readJson, requireId, requireInt } from "../http";
+import { optionalString, readJsonObject, requireId, requireInt } from "../http";
 import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
@@ -18,7 +18,7 @@ import { pendingKeysFor } from "./keys";
 export async function sendMessage(c: RouteContext): Promise<Response> {
   const auth = await authenticate(c.request, c.env);
   await rateLimit(c.env, "RL_WRITE", auth.deviceId);
-  const body = await readJson<SendMessageRequest>(c.request);
+  const body = await readJsonObject<SendMessageRequest>(c.request);
 
   const id = requireId(body.id, "id");
   const keyEpoch = requireInt(body.keyEpoch, "keyEpoch", 1, Number.MAX_SAFE_INTEGER);

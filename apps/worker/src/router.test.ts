@@ -1,5 +1,6 @@
 import { createExecutionContext, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import type { ApiError } from "./errors";
 import { Router } from "./router";
 
 function handle(router: Router, method: string, url: string): Promise<Response | null> {
@@ -40,6 +41,15 @@ describe("Router", () => {
     await handle(router, "GET", "https://x.dev/api/groups/g%2F1/devices/d1");
 
     expect(seen).toEqual({ groupId: "g/1", deviceId: "d1" });
+  });
+
+  it("turns a malformed percent escape into a client error", async () => {
+    const router = new Router();
+    router.get("/api/groups/:groupId", () => new Response("ok"));
+
+    await expect(handle(router, "GET", "https://x.dev/api/groups/%ZZ")).rejects.toMatchObject({
+      code: "bad_request",
+    } satisfies Partial<ApiError>);
   });
 
   it("ignores the query string when matching", async () => {
