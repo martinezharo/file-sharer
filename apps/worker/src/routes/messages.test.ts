@@ -93,6 +93,8 @@ describe("POST /api/messages", () => {
     await send(owner, {
       fileR2Key: key,
       fileIv: "file-iv",
+      fileMeta: "encrypted-meta",
+      fileMetaIv: "meta-iv",
       encryptedPayload: undefined,
       iv: undefined,
     });
@@ -188,6 +190,12 @@ describe("POST /api/messages", () => {
     ["neither text nor file", { encryptedPayload: undefined, iv: undefined }],
     ["text without an iv", { iv: undefined }],
     ["a file without an iv", { fileR2Key: "blob", fileIv: undefined }],
+    ["an iv without text", { encryptedPayload: undefined, iv: "iv" }],
+    ["file metadata without a file", { fileMeta: "metadata" }],
+    [
+      "a file without encrypted metadata",
+      { fileR2Key: "blob", fileIv: "file-iv", fileMeta: undefined, fileMetaIv: undefined },
+    ],
   ])("rejects a message with %s", async (_label, overrides) => {
     const { groupId, owner } = await seedSpace();
     await seedDevice(groupId);

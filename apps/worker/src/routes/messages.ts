@@ -35,6 +35,19 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
       ? undefined
       : requireId(body.deletesMessageId, "deletesMessageId");
 
+  // Keep optional ciphertext fields paired with their payload. Without these
+  // invariants a malformed client could store a record that the receiver
+  // partially renders and acknowledges, silently losing the other half.
+  if (!encryptedPayload && iv) {
+    throw new ApiError("bad_request", "iv requires encryptedPayload");
+  }
+  if (!fileR2Key && (fileIv || fileMeta || fileMetaIv)) {
+    throw new ApiError("bad_request", "File metadata requires fileR2Key");
+  }
+  if (fileR2Key && (!fileIv || !fileMeta || !fileMetaIv)) {
+    throw new ApiError("bad_request", "A file requires iv and encrypted metadata");
+  }
+
   // A device whose peers hold a signing key for it must sign, or they would
   // reject the message as a downgrade. Catching it here turns a client bug into
   // a clear error instead of a message that silently arrives unverifiable.
