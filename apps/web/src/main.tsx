@@ -5,6 +5,7 @@ import "@fontsource-variable/bricolage-grotesque/wght.css";
 import "@fontsource-variable/hanken-grotesk/wght.css";
 import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./styles.css";
+import { redirectInstalledAppFromLanding } from "./pwa";
 import { ready, startupError } from "./state/session";
 import { App } from "./ui/App";
 
@@ -30,6 +31,7 @@ function registerServiceWorker(): void {
 }
 
 registerServiceWorker();
+redirectInstalledAppFromLanding();
 
 const root = document.getElementById("app");
 if (root) {
