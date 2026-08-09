@@ -177,7 +177,7 @@ function SiteHeader({ scrolled }: { scrolled: boolean }): JSX.Element {
         <a href="#top" class="flex items-center">
           <Logo />
         </a>
-        <nav class="flex items-center gap-1 text-[13.5px] font-medium text-subtle max-md:hidden">
+        <nav class="flex items-center gap-1 text-note font-medium text-subtle max-md:hidden">
           <a
             class="rounded-lg px-3 py-2 transition hover:bg-surface-3 hover:text-ink"
             href="#features"
@@ -199,7 +199,7 @@ function SiteHeader({ scrolled }: { scrolled: boolean }): JSX.Element {
         </nav>
         <OpenAppLink
           class={cx(
-            "inline-flex h-10 items-center gap-2 rounded-card bg-accent px-4 text-[14px] font-semibold text-on-accent shadow-accent transition-[opacity,transform] duration-300 hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[17px]",
+            "inline-flex h-10 items-center gap-2 rounded-card bg-accent px-4 text-body font-semibold text-on-accent shadow-accent transition-[opacity,transform] duration-300 hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[17px]",
             scrolled ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-1 opacity-0",
           )}
         >
@@ -216,7 +216,7 @@ function Hero(): JSX.Element {
     <section id="top" class="relative scroll-mt-20">
       <div class="mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 max-md:px-4 max-md:py-10 md:grid-cols-[1.05fr_0.95fr] md:py-24">
         <div class="max-md:text-center">
-          <span class="inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-accent [&_svg]:size-3.5">
+          <span class="inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-meta font-medium uppercase tracking-[0.16em] text-accent [&_svg]:size-3.5">
             <ShieldCheck />
             End-to-end encrypted
           </span>
@@ -225,7 +225,7 @@ function Hero(): JSX.Element {
             <br class="max-md:hidden" /> between your own devices —{" "}
             <span class="text-accent">privately</span>.
           </h1>
-          <p class="mt-5 max-w-xl text-[16.5px] leading-relaxed text-subtle max-md:mx-auto">
+          <p class="mt-5 max-w-xl text-lead leading-relaxed text-subtle max-md:mx-auto">
             file-sharer is a private, end-to-end encrypted space for your phone, laptop, and tablet.
             No account required: your content is encrypted on your device before upload, and the
             server never receives it in readable form.
@@ -233,18 +233,18 @@ function Hero(): JSX.Element {
           {/* Stacked on a phone, the two buttons match widths instead of
               centring two different-length pills under each other. */}
           <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center max-sm:flex-col max-sm:items-stretch">
-            <OpenAppLink class="inline-flex h-12 items-center justify-center gap-2 rounded-card bg-accent px-5 text-[15px] font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]">
+            <OpenAppLink class="inline-flex h-12 items-center justify-center gap-2 rounded-card bg-accent px-5 text-body-lg font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]">
               Create your private space
               <ArrowRight />
             </OpenAppLink>
             <a
               href="#how"
-              class="surface-card inline-flex h-12 items-center justify-center rounded-card px-5 text-[15px] font-semibold text-ink transition hover:bg-surface-3"
+              class="surface-card inline-flex h-12 items-center justify-center rounded-card px-5 text-body-lg font-semibold text-ink transition hover:bg-surface-3"
             >
               See how it works
             </a>
           </div>
-          <ul class="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[11px] uppercase tracking-[0.1em] text-muted max-md:justify-center">
+          <ul class="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-meta uppercase tracking-[0.1em] text-muted max-md:justify-center">
             <li class="flex items-center gap-1.5">
               <span class="size-1.5 rounded-full bg-success" /> No account
             </li>
@@ -281,23 +281,23 @@ function ChatPreview(): JSX.Element {
           <MonitorSmartphone />
         </span>
         <span class="min-w-0 flex-1">
-          <span class="block truncate font-display text-[14.5px] font-semibold tracking-[-0.02em]">
+          <span class="block truncate font-display text-body font-semibold tracking-[-0.02em]">
             Personal
           </span>
-          <span class="block font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+          <span class="block font-mono text-meta uppercase tracking-[0.14em] text-muted">
             3 devices
           </span>
         </span>
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--c-success)_14%,transparent)] px-2.5 py-1 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-success [&_svg]:size-3">
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--c-success)_14%,transparent)] px-2.5 py-1 font-mono text-meta font-medium uppercase tracking-[0.12em] text-success [&_svg]:size-3">
           <Lock />
           Encrypted
         </span>
       </div>
 
       <div class="flex flex-col gap-2.5 px-4 py-5">
-        <div class="max-w-[85%] self-start rounded-xl2 rounded-bl-[6px] bg-surface-3 px-3.5 py-2.5 text-[13.5px] leading-relaxed">
+        <div class="max-w-[85%] self-start rounded-xl2 rounded-bl-[6px] bg-surface-3 px-3.5 py-2.5 text-note leading-relaxed">
           https://rankmaker.net/template/best-video-game-sagas
-          <span class="mt-1 block font-mono text-[10px] text-muted">From My laptop · 09:41</span>
+          <span class="mt-1 block font-mono text-meta text-muted">From My laptop · 09:41</span>
         </div>
 
         <div class="flex max-w-[85%] items-center gap-3 self-start rounded-xl2 rounded-bl-[6px] bg-surface-3 px-3.5 py-3">
@@ -305,14 +305,14 @@ function ChatPreview(): JSX.Element {
             <FileText />
           </span>
           <span class="min-w-0">
-            <span class="block truncate text-[13px] font-medium">contract-signed.pdf</span>
-            <span class="block font-mono text-[10px] text-muted">1.2 MB · downloaded</span>
+            <span class="block truncate text-note font-medium">contract-signed.pdf</span>
+            <span class="block font-mono text-meta text-muted">1.2 MB · downloaded</span>
           </span>
         </div>
 
-        <div class="max-w-[85%] self-end rounded-xl2 rounded-br-[6px] bg-accent px-3.5 py-2.5 text-[13.5px] leading-relaxed text-on-accent">
+        <div class="max-w-[85%] self-end rounded-xl2 rounded-br-[6px] bg-accent px-3.5 py-2.5 text-note leading-relaxed text-on-accent">
           Marta · +1 (202) 555-0147
-          <span class="mt-1 flex items-center justify-end gap-1 font-mono text-[10px] opacity-80">
+          <span class="mt-1 flex items-center justify-end gap-1 font-mono text-meta opacity-80">
             09:42
             <CheckCheck class="size-3" />
           </span>
@@ -323,7 +323,7 @@ function ChatPreview(): JSX.Element {
         <span class="grid size-8 flex-none place-items-center rounded-full bg-surface-3 text-muted [&_svg]:size-[17px]">
           <Plus />
         </span>
-        <span class="flex-1 text-[13px] text-muted">Write a message…</span>
+        <span class="flex-1 text-note text-muted">Write a message…</span>
         <span class="grid size-8 flex-none place-items-center rounded-full bg-accent text-on-accent [&_svg]:size-[15px]">
           <Send />
         </span>
@@ -343,13 +343,13 @@ function SectionHeading({
 }): JSX.Element {
   return (
     <div class="mx-auto max-w-2xl text-center">
-      <div class="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
+      <div class="font-mono text-meta font-medium uppercase tracking-[0.18em] text-accent">
         {kicker}
       </div>
       <h2 class="mt-3 text-[clamp(1.6rem,3.5vw,2.25rem)] font-semibold tracking-[-0.03em]">
         {title}
       </h2>
-      {subtitle && <p class="mt-3 text-[15.5px] leading-relaxed text-muted">{subtitle}</p>}
+      {subtitle && <p class="mt-3 text-body-lg leading-relaxed text-muted">{subtitle}</p>}
     </div>
   );
 }
@@ -369,8 +369,8 @@ function Features(): JSX.Element {
               <div class="grid size-11 place-items-center rounded-[12px] bg-accent-soft text-accent [&_svg]:size-[22px]">
                 <Icon />
               </div>
-              <h3 class="mt-4 text-[16.5px] font-semibold tracking-[-0.01em]">{title}</h3>
-              <p class="mt-2 text-[14px] leading-relaxed text-muted">{body}</p>
+              <h3 class="mt-4 text-lead font-semibold tracking-[-0.01em]">{title}</h3>
+              <p class="mt-2 text-body leading-relaxed text-muted">{body}</p>
             </article>
           ))}
         </div>
@@ -391,12 +391,12 @@ function HowItWorks(): JSX.Element {
                 <span class="grid size-10 place-items-center rounded-[12px] bg-accent text-on-accent [&_svg]:size-[20px]">
                   <Icon />
                 </span>
-                <span class="font-mono text-[12px] font-medium text-muted">
+                <span class="font-mono text-caption font-medium text-muted">
                   Step {String(i + 1).padStart(2, "0")}
                 </span>
               </div>
-              <h3 class="mt-4 text-[17px] font-semibold tracking-[-0.01em]">{title}</h3>
-              <p class="mt-2 text-[14px] leading-relaxed text-muted">{body}</p>
+              <h3 class="mt-4 text-title-sm font-semibold tracking-[-0.01em]">{title}</h3>
+              <p class="mt-2 text-body leading-relaxed text-muted">{body}</p>
             </li>
           ))}
         </ol>
@@ -430,18 +430,18 @@ function Security(): JSX.Element {
       <div class="surface-card mx-auto max-w-5xl overflow-hidden rounded-xl3 p-8 !shadow-float md:p-12">
         <div class="grid gap-10 md:grid-cols-[0.9fr_1.1fr] md:items-center">
           <div>
-            <div class="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
+            <div class="font-mono text-meta font-medium uppercase tracking-[0.18em] text-accent">
               Security model
             </div>
             <h2 class="mt-3 text-[clamp(1.6rem,3.5vw,2.25rem)] font-semibold tracking-[-0.03em]">
               Built so the server cannot decrypt your content
             </h2>
-            <p class="mt-4 text-[15px] leading-relaxed text-muted">
+            <p class="mt-4 text-body-lg leading-relaxed text-muted">
               Messages, files, and file metadata are encrypted on your devices. The service receives
               ciphertext, public keys, authentication data, and delivery metadata — but not readable
               content or private device keys.
             </p>
-            <OpenAppLink class="mt-6 inline-flex items-center gap-2 text-[14.5px] font-semibold text-accent transition-[gap] hover:gap-3 [&_svg]:size-[17px]">
+            <OpenAppLink class="mt-6 inline-flex items-center gap-2 text-body font-semibold text-accent transition-[gap] hover:gap-3 [&_svg]:size-[17px]">
               Create your private space
               <ArrowRight />
             </OpenAppLink>
@@ -449,11 +449,11 @@ function Security(): JSX.Element {
           <dl class="grid gap-3 sm:grid-cols-2">
             {points.map(({ term, desc }) => (
               <div key={term} class="rounded-xl2 bg-surface-3 p-5">
-                <dt class="flex items-center gap-2 text-[14px] font-semibold [&_svg]:size-4 [&_svg]:text-accent">
+                <dt class="flex items-center gap-2 text-body font-semibold [&_svg]:size-4 [&_svg]:text-accent">
                   <Lock />
                   {term}
                 </dt>
-                <dd class="mt-2 text-[13px] leading-relaxed text-muted">{desc}</dd>
+                <dd class="mt-2 text-note leading-relaxed text-muted">{desc}</dd>
               </div>
             ))}
           </dl>
@@ -471,13 +471,13 @@ function Faq(): JSX.Element {
         <div class="mt-10 flex flex-col gap-3">
           {FAQS.map(({ q, a }) => (
             <details key={q} class="surface-card group rounded-xl2 px-5 transition open:shadow-pop">
-              <summary class="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-[15.5px] font-semibold [&::-webkit-details-marker]:hidden">
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-body-lg font-semibold [&::-webkit-details-marker]:hidden">
                 {q}
                 <span class="grid size-7 flex-none place-items-center rounded-full bg-surface-3 text-muted transition group-open:rotate-45 group-open:bg-accent-soft group-open:text-accent">
                   <Plus class="size-4" />
                 </span>
               </summary>
-              <p class="pb-5 text-[14px] leading-relaxed text-muted">{a}</p>
+              <p class="pb-5 text-body leading-relaxed text-muted">{a}</p>
             </details>
           ))}
         </div>
@@ -491,16 +491,16 @@ function SiteFooter(): JSX.Element {
     <footer class="border-t border-line px-6 py-12 max-md:px-4">
       <div class="mx-auto flex max-w-6xl flex-col items-center gap-6 text-center">
         <Logo />
-        <p class="max-w-md text-[14px] leading-relaxed text-muted">
+        <p class="max-w-md text-body leading-relaxed text-muted">
           A private, end-to-end encrypted space for text and files across your devices.
         </p>
-        <div class="flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted [&_svg]:size-3.5">
+        <div class="flex items-center gap-2 font-mono text-meta uppercase tracking-[0.14em] text-muted [&_svg]:size-3.5">
           <ShieldCheck class="text-accent" />
           End-to-end encryption
         </div>
         <nav
           aria-label="Resources"
-          class="flex flex-wrap justify-center gap-x-5 gap-y-2 text-[13px] text-muted"
+          class="flex flex-wrap justify-center gap-x-5 gap-y-2 text-note text-muted"
         >
           <a class="transition hover:text-ink" href="/how-it-works/">
             How it works
@@ -515,7 +515,7 @@ function SiteFooter(): JSX.Element {
             Install
           </a>
         </nav>
-        <p class="text-[12.5px] text-muted">© {new Date().getFullYear()} file-sharer</p>
+        <p class="text-caption text-muted">© {new Date().getFullYear()} file-sharer</p>
       </div>
     </footer>
   );

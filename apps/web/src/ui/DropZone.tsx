@@ -89,8 +89,8 @@ export function DropZone(): JSX.Element | null {
         <div class="grid size-14 place-items-center rounded-xl2 bg-accent-soft text-accent [&_svg]:size-[26px]">
           <Upload />
         </div>
-        <h3 class="text-[19px]">Drop to send</h3>
-        <p class="max-w-[280px] text-sm leading-relaxed text-muted">
+        <h3 class="text-title">Drop to send</h3>
+        <p class="max-w-[280px] text-body leading-relaxed text-muted">
           Your files are encrypted here and sent to your other devices.
         </p>
       </div>

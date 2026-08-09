@@ -42,7 +42,7 @@ export function Spaces(): JSX.Element {
               <h1 class="text-[clamp(1.7rem,4vw,2.25rem)] font-semibold tracking-[-0.03em]">
                 Start your first space
               </h1>
-              <p class="mx-auto mt-3 max-w-md text-[15px] leading-relaxed text-muted">
+              <p class="mx-auto mt-3 max-w-md text-body-lg leading-relaxed text-muted">
                 A space is a private, end-to-end encrypted thread shared by your own devices. You
                 can have as many as you like.
               </p>
@@ -57,8 +57,8 @@ export function Spaces(): JSX.Element {
                 it into a half-width column beside itself. */}
             <div class="flex items-end justify-between gap-4 max-sm:flex-col max-sm:items-stretch max-sm:gap-5">
               <div>
-                <h1 class="text-[26px] font-semibold tracking-[-0.03em]">Your spaces</h1>
-                <p class="mt-1.5 text-[14px] text-muted">
+                <h1 class="text-display-lg font-semibold tracking-[-0.03em]">Your spaces</h1>
+                <p class="mt-1.5 text-body text-muted">
                   {hasPendingShare()
                     ? "Pick the space to send the shared content to."
                     : "Everything in a space stays encrypted between your devices."}
@@ -136,13 +136,13 @@ function SpaceCard({ space }: { space: SpaceRecord }): JSX.Element {
         <span class="min-w-0 flex-1">
           <span
             class={cx(
-              "block truncate text-[16px] font-semibold tracking-[-0.01em]",
+              "block truncate text-lead font-semibold tracking-[-0.01em]",
               !space.name && "text-subtle",
             )}
           >
             {name}
           </span>
-          <span class="block text-[12.5px] text-muted">
+          <span class="block text-caption text-muted">
             Created {new Date(space.createdAt).toLocaleDateString()}
           </span>
         </span>

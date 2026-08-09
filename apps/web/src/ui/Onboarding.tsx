@@ -54,14 +54,14 @@ export function OnboardingCard(): JSX.Element {
       {mode === "choose" && (
         <>
           <header class="mb-6">
-            <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.14em] text-accent [&_svg]:size-3.5">
+            <span class="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1.5 font-mono text-meta font-medium uppercase tracking-[0.14em] text-accent [&_svg]:size-3.5">
               <ShieldCheck />
               Encrypted before upload
             </span>
-            <h2 class="mt-3.5 text-[22px] tracking-[-0.02em]">
+            <h2 class="mt-3.5 text-title-lg tracking-[-0.02em]">
               Your private space for every device
             </h2>
-            <p class="mt-1.5 text-sm leading-relaxed text-muted">
+            <p class="mt-1.5 text-body leading-relaxed text-muted">
               Create a private space or link this device to one you already have. No account or
               server password needed.
             </p>
@@ -98,8 +98,8 @@ export function OnboardingCard(): JSX.Element {
           }}
         >
           <header class="mb-1">
-            <h2 class="text-[22px] tracking-[-0.02em]">Create a private space</h2>
-            <p class="mt-1.5 text-sm leading-relaxed text-muted">
+            <h2 class="text-title-lg tracking-[-0.02em]">Create a private space</h2>
+            <p class="mt-1.5 text-body leading-relaxed text-muted">
               Name the space and this device to get started — no account required.
             </p>
           </header>
@@ -134,8 +134,8 @@ export function OnboardingCard(): JSX.Element {
         <>
           {!link && (
             <header class="mb-4">
-              <h2 class="text-[22px] tracking-[-0.02em]">Link this device</h2>
-              <p class="mt-1.5 text-sm leading-relaxed text-muted">
+              <h2 class="text-title-lg tracking-[-0.02em]">Link this device</h2>
+              <p class="mt-1.5 text-body leading-relaxed text-muted">
                 Name this device, then scan the code from one already in the space.
               </p>
             </header>
@@ -184,25 +184,25 @@ function RestoreFlow({ onBack }: { onBack: () => void }): JSX.Element {
       }}
     >
       <header class="mb-1">
-        <h2 class="text-[22px] tracking-[-0.02em]">Restore a space</h2>
-        <p class="mt-1.5 text-sm leading-relaxed text-muted">
+        <h2 class="text-title-lg tracking-[-0.02em]">Restore a space</h2>
+        <p class="mt-1.5 text-body leading-relaxed text-muted">
           Pick the recovery file you saved and enter its code. This device takes over the identity
           the file was exported from.
         </p>
       </header>
 
       <label class="flex flex-col gap-1.5 text-left">
-        <span class="text-[13px] font-medium text-subtle">Recovery file</span>
+        <span class="text-note font-medium text-subtle">Recovery file</span>
         <input
           type="file"
           accept="application/json,.json"
-          class="field-input file:mr-3 file:rounded-[8px] file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-[13px] file:font-medium"
+          class="field-input file:mr-3 file:rounded-[8px] file:border-0 file:bg-surface-3 file:px-3 file:py-1.5 file:text-note file:font-medium"
           onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
         />
       </label>
 
       <label class="flex flex-col gap-1.5 text-left">
-        <span class="text-[13px] font-medium text-subtle">Recovery code</span>
+        <span class="text-note font-medium text-subtle">Recovery code</span>
         <input
           type="text"
           class="field-input font-mono tracking-[0.06em]"
@@ -247,8 +247,8 @@ function Choice({
         {icon}
       </span>
       <span class="min-w-0 flex-1">
-        <span class="block text-[14.5px] font-semibold">{title}</span>
-        <span class="block text-[12.5px] text-muted">{desc}</span>
+        <span class="block text-body font-semibold">{title}</span>
+        <span class="block text-caption text-muted">{desc}</span>
       </span>
       <ChevronRight class="size-[18px] flex-none text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" />
     </button>
@@ -272,9 +272,9 @@ function TextField({
 }): JSX.Element {
   return (
     <label class="flex flex-col gap-1.5 text-left">
-      <span class="flex items-baseline justify-between gap-2 text-[13px] font-medium text-subtle">
+      <span class="flex items-baseline justify-between gap-2 text-note font-medium text-subtle">
         {label}
-        {hint && <span class="text-[11.5px] font-normal text-muted">{hint}</span>}
+        {hint && <span class="text-meta font-normal text-muted">{hint}</span>}
       </span>
       <input
         type="text"
@@ -360,7 +360,7 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
 
   return (
     <div class="flex flex-col items-center gap-5 text-center">
-      <p class="text-sm leading-relaxed text-subtle">
+      <p class="text-body leading-relaxed text-subtle">
         On a device already in the space, open{" "}
         <strong class="text-ink">Devices → Add device</strong> and scan this code.
       </p>
@@ -369,11 +369,11 @@ function LinkFlow({ name, setName, busy, onStart, onBack }: LinkFlowProps): JSX.
       </div>
 
       {link.status === "error" ? (
-        <p class="inline-flex items-center gap-2 rounded-full bg-danger-soft px-3.5 py-2 text-[13.5px] text-danger">
+        <p class="inline-flex items-center gap-2 rounded-full bg-danger-soft px-3.5 py-2 text-note text-danger">
           Linking failed: {link.error}
         </p>
       ) : (
-        <span class="inline-flex items-center gap-2.5 rounded-full bg-surface-3 px-3.5 py-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-subtle">
+        <span class="inline-flex items-center gap-2.5 rounded-full bg-surface-3 px-3.5 py-2 font-mono text-meta font-medium uppercase tracking-[0.14em] text-subtle">
           <Spinner /> Waiting for device
         </span>
       )}

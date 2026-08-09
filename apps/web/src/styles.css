@@ -24,6 +24,7 @@
   --color-accent-press: var(--c-accent-press);
   --color-accent-soft: var(--c-accent-soft);
   --color-on-accent: var(--c-on-accent);
+  --color-on-accent-muted: var(--c-on-accent-muted);
 
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
@@ -43,6 +44,31 @@
   --font-display: "Bricolage Grotesque Variable", "Hanken Grotesk Variable", sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
+  /* Type scale.
+
+     Every size is in `rem`, never `px`: a `px` size is frozen at whatever the
+     designer typed, so a reader who raised the default font size in their
+     browser gets nothing. `rem` tracks that preference (WCAG 1.4.4 asks that
+     text survive a 200% resize; honouring the *setting* is the part a zoom
+     gesture can't stand in for).
+
+     The floor is 11px. Both platform guidelines put their smallest text there
+     — Apple's HIG says never below 11pt, Material's `labelSmall` is 11sp — and
+     the 10px timestamps this app used to ship were under it. Sizes are named
+     by role rather than by measurement so the scale can move without a
+     find-and-replace across every component. */
+  --text-meta: 0.6875rem; /* 11px — timestamps, badges, status pills */
+  --text-caption: 0.78125rem; /* 12.5px — secondary metadata */
+  --text-note: 0.84375rem; /* 13.5px — dense labels, list rows */
+  --text-body: 0.90625rem; /* 14.5px — default reading size */
+  --text-body-lg: 0.9375rem; /* 15px — document base */
+  --text-lead: 1rem; /* 16px — mobile reading size, inputs */
+  --text-title-sm: 1.0625rem; /* 17px */
+  --text-title: 1.1875rem; /* 19px */
+  --text-title-lg: 1.375rem; /* 22px */
+  --text-display: 1.5rem; /* 24px */
+  --text-display-lg: 1.625rem; /* 26px */
+
   --animate-spin-fast: spin 0.65s linear infinite;
 }
 
@@ -53,6 +79,12 @@
   --c-accent-soft: color-mix(in srgb, var(--c-accent) 12%, transparent);
   --c-accent-glow: color-mix(in srgb, var(--c-accent) 45%, transparent);
   --c-on-accent: #ffffff;
+  /* Secondary copy on an accent fill. This has to be a solid colour, not
+     `on-accent` at reduced alpha: the accent background only clears white by
+     5.4:1 to begin with, so any alpha under ~90% drops the text below the
+     4.5:1 that WCAG 1.4.3 asks of small text. Verified at 4.74:1 on `accent`
+     and 6.08:1 on the darkened attachment surface inside a sent bubble. */
+  --c-on-accent-muted: #f0f0fb;
 
   --c-bg: #f6f6f7;
   --c-surface: #ffffff;
@@ -89,6 +121,11 @@
     --c-accent-soft: color-mix(in srgb, var(--c-accent) 16%, transparent);
     --c-accent-glow: color-mix(in srgb, var(--c-accent) 40%, transparent);
     --c-on-accent: #0c0c14;
+    /* Dark theme inverts the relationship — the accent is light and the text
+       on it is near-black — but the margin is just as thin, so this is a
+       solid colour here too. 5.03:1 on `accent`, 6.25:1 on the lightened
+       attachment surface. */
+    --c-on-accent-muted: #17172a;
 
     --c-bg: #0a0a0c;
     --c-surface: #141417;
@@ -154,7 +191,7 @@
     font-family: var(--font-sans);
     background: var(--c-bg);
     color: var(--c-ink);
-    font-size: 15px;
+    font-size: var(--text-body-lg);
     line-height: 1.5;
     letter-spacing: -0.006em;
     -webkit-font-smoothing: antialiased;
@@ -244,8 +281,12 @@
     @apply bg-surface shadow-soft dark:bg-surface-2 dark:ring-1 dark:ring-inset dark:ring-line;
   }
 
+  /* Safari on iOS zooms the viewport when a field smaller than 16px takes
+     focus, and never zooms back out — so every text entry point in the app
+     steps up to `lead` on narrow screens. It reads better under a thumb
+     anyway. */
   .field-input {
-    @apply w-full rounded-card border border-line-strong bg-surface px-3.5 py-3 text-[14.5px] text-ink transition;
+    @apply w-full rounded-card border border-line-strong bg-surface px-3.5 py-3 text-body text-ink transition max-md:text-lead;
   }
   .field-input::placeholder {
     color: var(--c-muted);

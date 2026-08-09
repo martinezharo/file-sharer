@@ -128,7 +128,7 @@ export function MenuItem({
       role="menuitem"
       onClick={onClick}
       class={cx(
-        "flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[13.5px] font-medium transition [&_svg]:size-4 [&_svg]:flex-none",
+        "flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-note font-medium transition [&_svg]:size-4 [&_svg]:flex-none",
         danger
           ? "text-danger hover:bg-danger-soft [&_svg]:text-danger"
           : "text-ink hover:bg-surface-3 [&_svg]:text-subtle",

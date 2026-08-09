@@ -96,11 +96,11 @@ function StartupError({ message }: { message: string }): JSX.Element {
         <div class="mx-auto grid size-12 place-items-center rounded-[14px] bg-danger-soft text-danger [&_svg]:size-6">
           <AlertTriangle />
         </div>
-        <h1 class="mt-5 font-display text-[24px] font-semibold tracking-[-0.025em]">
+        <h1 class="mt-5 font-display text-display font-semibold tracking-[-0.025em]">
           Secure connection required
         </h1>
-        <p class="mt-3 text-[14px] leading-6 text-subtle">{message}</p>
-        <p class="mt-3 text-[13px] leading-5 text-muted">
+        <p class="mt-3 text-body leading-6 text-subtle">{message}</p>
+        <p class="mt-3 text-note leading-5 text-muted">
           For local development, open the app through <code>http://localhost</code> or configure
           HTTPS for the host you are using.
         </p>
@@ -141,7 +141,7 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
             onClick={() => setRenaming(true)}
             class="group mr-auto flex min-w-0 items-center gap-1.5 rounded-[10px] px-1.5 py-[7px] text-left transition hover:bg-surface-3"
           >
-            <span class="truncate font-display text-[15px] font-semibold tracking-[-0.022em]">
+            <span class="truncate font-display text-body-lg font-semibold tracking-[-0.022em]">
               {spaceName}
             </span>
             <Pencil class="size-[13px] flex-none text-muted opacity-0 transition group-hover:opacity-100" />
@@ -162,7 +162,7 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
           ))}
         </nav>
 
-        <div class="mt-auto flex items-center gap-2.5 px-[25px] pt-2 font-mono text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted">
+        <div class="mt-auto flex items-center gap-2.5 px-[25px] pt-2 font-mono text-meta font-medium uppercase tracking-[0.14em] text-muted">
           <span
             class={cx(
               "size-2 flex-none rounded-full",
@@ -186,7 +186,7 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
             ) : (
               <BackLink to={spacePath(spaceId)} label={`Back to ${spaceName}`} />
             )}
-            <span class="truncate px-1.5 font-display text-[15px] font-semibold tracking-[-0.022em]">
+            <span class="truncate px-1.5 font-display text-body-lg font-semibold tracking-[-0.022em]">
               {section === "chat" ? spaceName : sectionLabel(section)}
             </span>
           </div>
@@ -202,7 +202,7 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
 
         {/* Desktop view header */}
         <div class="hidden h-[60px] flex-none items-center justify-between gap-3 border-b border-line px-6 md:flex">
-          <div class="font-display text-[17px] font-semibold tracking-[-0.022em]">
+          <div class="font-display text-title-sm font-semibold tracking-[-0.022em]">
             {sectionLabel(section)}
           </div>
         </div>
@@ -218,11 +218,11 @@ function SpaceView({ section }: { section: SpaceSection }): JSX.Element {
         <Modal title="Leave this space?" onClose={() => setConfirmLeaveOpen(false)}>
           <div class="flex gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
             <AlertTriangle class="mt-0.5 size-[19px] flex-none" />
-            <p class="text-[13.5px] font-medium leading-5">
+            <p class="text-note font-medium leading-5">
               This will remove the space, messages, files, and encryption keys from this device.
             </p>
           </div>
-          <p class="text-[13.5px] leading-5 text-subtle">
+          <p class="text-note leading-5 text-subtle">
             Other devices in the space will keep their access, and your other spaces on this device
             are untouched. You can link this device again later from another device.
           </p>
@@ -344,7 +344,7 @@ function RenameSpaceModal({ name, onClose }: { name: string; onClose: () => void
         }}
       >
         <label class="flex flex-col gap-1.5 text-left">
-          <span class="text-[13px] font-medium text-subtle">Space name</span>
+          <span class="text-note font-medium text-subtle">Space name</span>
           <input
             type="text"
             class="field-input"
@@ -355,7 +355,7 @@ function RenameSpaceModal({ name, onClose }: { name: string; onClose: () => void
             onInput={(e) => setValue((e.target as HTMLInputElement).value)}
           />
         </label>
-        <p class="text-[12.5px] leading-5 text-muted">
+        <p class="text-caption leading-5 text-muted">
           The name is stored on this device only, and shared with a device when you link it.
         </p>
         <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
@@ -381,12 +381,12 @@ function RevokedNotice(): JSX.Element {
     <Modal title="This device is no longer linked">
       <div class="flex gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
         <AlertTriangle class="mt-0.5 size-[19px] flex-none" />
-        <p class="text-[13.5px] font-medium leading-5">
+        <p class="text-note font-medium leading-5">
           Its access was revoked from another device, or the space no longer exists. Messages and
           files can't be sent or received until you link it again.
         </p>
       </div>
-      <p class="text-[13.5px] leading-5 text-subtle">
+      <p class="text-note leading-5 text-subtle">
         Linking again starts a new session on this device: the messages, files and encryption keys
         stored here for this space are removed first.
       </p>
@@ -419,7 +419,7 @@ function NavItem({
       aria-current={active ? "page" : undefined}
       onClick={(event) => followLink(event as unknown as MouseEvent, href)}
       class={cx(
-        "flex w-full items-center gap-[11px] rounded-[10px] px-[11px] py-[9px] text-left text-[14px] font-medium transition [&_svg]:size-[18px] [&_svg]:flex-none [&_svg]:opacity-85",
+        "flex w-full items-center gap-[11px] rounded-[10px] px-[11px] py-[9px] text-left text-body font-medium transition [&_svg]:size-[18px] [&_svg]:flex-none [&_svg]:opacity-85",
         active
           ? "bg-accent-soft text-accent [&_svg]:opacity-100"
           : "text-subtle hover:bg-surface-3 hover:text-ink",

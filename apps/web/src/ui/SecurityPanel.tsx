@@ -76,7 +76,7 @@ export function SecurityPanel(): JSX.Element {
 
   return (
     <div class="flex flex-col gap-2.5">
-      <h3 class="mt-2 text-[15px] font-semibold">This device</h3>
+      <h3 class="mt-2 text-body-lg font-semibold">This device</h3>
 
       <Row
         icon={<LockKeyhole />}
@@ -151,7 +151,7 @@ export function SecurityPanel(): JSX.Element {
         <Modal title="Remove the lock?" onClose={() => setRemoveOpen(false)}>
           <div class="flex gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
             <AlertTriangle class="mt-0.5 size-[19px] flex-none" />
-            <p class="text-[13.5px] font-medium leading-5">
+            <p class="text-note font-medium leading-5">
               Messages, files and keys go back to being stored unencrypted on this device.
             </p>
           </div>
@@ -210,8 +210,8 @@ function Row({
           {icon}
         </span>
         <div class="min-w-0 flex-1">
-          <div class="text-[14.5px] font-medium">{title}</div>
-          <p class="mt-0.5 text-[12.5px] leading-5 text-muted">{body}</p>
+          <div class="text-body font-medium">{title}</div>
+          <p class="mt-0.5 text-caption leading-5 text-muted">{body}</p>
         </div>
       </div>
       <div class="flex flex-none gap-2 pt-1 max-sm:w-full max-sm:pl-[52px] max-sm:pt-0 [&>*]:max-sm:flex-1 [&_button]:max-sm:w-full">
@@ -258,7 +258,7 @@ function SetLockModal({
 
   return (
     <Modal title="Lock this device" onClose={busy ? undefined : onClose}>
-      <p class="text-[13.5px] leading-5 text-subtle">
+      <p class="text-note leading-5 text-subtle">
         Everything stored here gets encrypted with a key only you can produce. It never reaches the
         server, and your other devices are unaffected.
       </p>
@@ -282,7 +282,7 @@ function SetLockModal({
         }}
       >
         <label class="flex flex-col gap-1.5">
-          <span class="text-[13px] font-medium text-subtle">Passphrase or PIN</span>
+          <span class="text-note font-medium text-subtle">Passphrase or PIN</span>
           <input
             type="password"
             class="field-input"
@@ -292,7 +292,7 @@ function SetLockModal({
           />
         </label>
         <label class="flex flex-col gap-1.5">
-          <span class="text-[13px] font-medium text-subtle">Repeat it</span>
+          <span class="text-note font-medium text-subtle">Repeat it</span>
           <input
             type="password"
             class="field-input"
@@ -302,7 +302,7 @@ function SetLockModal({
           />
         </label>
         {(tooShort || mismatch) && (
-          <p class="text-[12.5px] text-danger">
+          <p class="text-caption text-danger">
             {tooShort
               ? `Use at least ${MIN_PASSPHRASE_LENGTH} characters.`
               : "Those don't match yet."}
@@ -313,7 +313,7 @@ function SetLockModal({
             class="mt-0.5 size-4 flex-none text-amber-600 dark:text-amber-300"
             aria-hidden="true"
           />
-          <p class="text-[12.5px] leading-5 text-subtle">
+          <p class="text-caption leading-5 text-subtle">
             There is no reset. If you forget it, this device's copy is unreadable — link it again
             from another device, or restore from a recovery file.
           </p>
@@ -352,13 +352,13 @@ function RecoveryModal({
 
   return (
     <Modal title="Your recovery file" onClose={onClose}>
-      <p class="text-[13.5px] leading-5 text-subtle">
+      <p class="text-note leading-5 text-subtle">
         Save both. The file is useless without the code, and the code is useless without the file.
       </p>
 
       <div class="flex flex-col gap-2">
-        <span class="text-[13px] font-medium text-subtle">Recovery code</span>
-        <code class="select-all break-all rounded-card bg-surface-3 px-3.5 py-3 font-mono text-[13.5px] leading-6 tracking-[0.06em]">
+        <span class="text-note font-medium text-subtle">Recovery code</span>
+        <code class="select-all break-all rounded-card bg-surface-3 px-3.5 py-3 font-mono text-note leading-6 tracking-[0.06em]">
           {code}
         </code>
         <Button variant="secondary" size="sm" class="self-start" onClick={() => void copy()}>
@@ -372,7 +372,7 @@ function RecoveryModal({
           class="mt-0.5 size-4 flex-none text-amber-600 dark:text-amber-300"
           aria-hidden="true"
         />
-        <p class="text-[12.5px] leading-5 text-subtle">
+        <p class="text-caption leading-5 text-subtle">
           This code is shown once and stored nowhere. Anyone holding both the file and the code has
           full access to this space — keep them somewhere you would keep a password.
         </p>
@@ -382,7 +382,7 @@ function RecoveryModal({
         href={url}
         download={name}
         onClick={() => setDownloaded(true)}
-        class="inline-flex h-[42px] w-full items-center justify-center gap-2 rounded-card bg-accent px-4 text-[14.5px] font-medium text-on-accent shadow-accent transition hover:bg-accent-hover [&_svg]:size-[18px]"
+        class="inline-flex h-[42px] w-full items-center justify-center gap-2 rounded-card bg-accent px-4 text-body font-medium text-on-accent shadow-accent transition hover:bg-accent-hover [&_svg]:size-[18px]"
       >
         <Download />
         Download recovery file
