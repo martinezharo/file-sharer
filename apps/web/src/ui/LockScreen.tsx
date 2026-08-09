@@ -43,8 +43,8 @@ export function LockScreen({ onUnlocked }: { onUnlocked: () => void }): JSX.Elem
       <div class="surface-card flex w-full max-w-[380px] flex-col items-center gap-6 rounded-xl3 p-7 text-center !shadow-float max-md:p-6">
         <Logo size="lg" />
         <div>
-          <h1 class="text-[21px] tracking-[-0.02em]">This device is locked</h1>
-          <p class="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+          <h1 class="text-title-lg tracking-[-0.02em]">This device is locked</h1>
+          <p class="mt-1.5 text-note leading-relaxed text-muted">
             Your messages, files and keys are encrypted on this device until you unlock them.
           </p>
         </div>
@@ -65,7 +65,7 @@ export function LockScreen({ onUnlocked }: { onUnlocked: () => void }): JSX.Elem
             }}
           >
             <label class="flex flex-col gap-1.5 text-left">
-              <span class="text-[13px] font-medium text-subtle">Passphrase or PIN</span>
+              <span class="text-note font-medium text-subtle">Passphrase or PIN</span>
               <input
                 type="password"
                 class="field-input"
@@ -83,12 +83,12 @@ export function LockScreen({ onUnlocked }: { onUnlocked: () => void }): JSX.Elem
         )}
 
         {error && (
-          <p role="alert" class="text-[13px] leading-5 text-danger">
+          <p role="alert" class="text-note leading-5 text-danger">
             {error}
           </p>
         )}
 
-        <p class="flex items-start gap-2 text-left text-[12px] leading-5 text-muted">
+        <p class="flex items-start gap-2 text-left text-caption leading-5 text-muted">
           <KeyRound class="mt-0.5 size-3.5 flex-none" aria-hidden="true" />
           Forgot it? Nothing on the server can help — it never had the key. Link this device again
           from another one, or restore from a recovery file.

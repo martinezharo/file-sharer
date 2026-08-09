@@ -98,11 +98,11 @@ export function DeviceManager(): JSX.Element {
             into a half-width column beside itself. */}
         <div class="flex items-start justify-between gap-4 max-sm:flex-col max-sm:items-stretch max-sm:gap-4">
           <div>
-            <div class="mb-1 font-mono text-[10px] font-medium uppercase tracking-[0.18em] text-accent">
+            <div class="mb-1 font-mono text-meta font-medium uppercase tracking-[0.18em] text-accent">
               Workspace
             </div>
-            <h2 class="text-[18px] font-semibold">Linked devices</h2>
-            <p class="mt-1 text-[12.5px] leading-5 text-muted">
+            <h2 class="text-title-sm font-semibold">Linked devices</h2>
+            <p class="mt-1 text-caption leading-5 text-muted">
               Control which of your devices can connect and manage this encrypted space.
             </p>
             {!loading && (
@@ -114,7 +114,7 @@ export function DeviceManager(): JSX.Element {
           </div>
           {canAdminister && (
             <Button
-              class="flex-none max-sm:!h-[42px] max-sm:!w-full max-sm:!text-[14.5px]"
+              class="flex-none max-sm:!h-[42px] max-sm:!w-full max-sm:!text-body"
               variant="primary"
               size="sm"
               onClick={() => setAdding(true)}
@@ -126,7 +126,7 @@ export function DeviceManager(): JSX.Element {
         </div>
 
         {!loading && !canAdminister && (
-          <div class="flex gap-3 rounded-card border border-line bg-surface-2 px-4 py-3.5 text-[12.5px] leading-5 text-subtle">
+          <div class="flex gap-3 rounded-card border border-line bg-surface-2 px-4 py-3.5 text-caption leading-5 text-subtle">
             <UserRound class="mt-0.5 size-4 flex-none text-muted" aria-hidden="true" />
             <p>This device is a member. Ask the space owner to add, remove, or manage devices.</p>
           </div>
@@ -146,20 +146,20 @@ export function DeviceManager(): JSX.Element {
                   device.id === myId && "ring-1 ring-inset ring-accent/35",
                 )}
               >
-                <div class="grid size-[42px] flex-none place-items-center rounded-xl bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_80%,#fff)_0%,var(--c-accent)_55%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)] font-mono text-[14px] font-medium text-white ring-1 ring-inset ring-white/20">
+                <div class="grid size-[42px] flex-none place-items-center rounded-xl bg-[linear-gradient(155deg,color-mix(in_srgb,var(--c-accent)_80%,#fff)_0%,var(--c-accent)_55%,color-mix(in_srgb,var(--c-accent)_72%,#000)_100%)] font-mono text-body font-medium text-white ring-1 ring-inset ring-white/20">
                   {initials(device.name)}
                 </div>
                 <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-2 text-[14.5px] font-medium">
+                  <div class="flex flex-wrap items-center gap-2 text-body font-medium">
                     <span class="truncate">{device.name}</span>
                     <RoleBadge role={device.role} />
                   </div>
-                  <div class="font-mono text-[11.5px] text-muted">
+                  <div class="font-mono text-meta text-muted">
                     {device.id === myId && <span class="text-accent">This device · </span>}
                     Linked {new Date(device.createdAt).toLocaleString()}
                   </div>
                   {!device.keyUpToDate && (
-                    <div class="mt-1 flex items-center gap-1.5 text-[11.5px] text-amber-600 dark:text-amber-400">
+                    <div class="mt-1 flex items-center gap-1.5 text-meta text-amber-600 dark:text-amber-400">
                       <span class="size-1.5 flex-none rounded-full bg-current" />
                       Gets the new key when it reconnects
                     </div>
@@ -213,13 +213,13 @@ export function DeviceManager(): JSX.Element {
 
       {pendingRevoke && (
         <Modal title="Revoke this device?" onClose={() => setPendingRevoke(null)}>
-          <p class="text-[13.5px] leading-5 text-subtle">
+          <p class="text-note leading-5 text-subtle">
             <strong class="text-ink">{pendingRevoke.name}</strong> loses access, and this space gets
             a new encryption key so it can't read anything sent from now on.
           </p>
           <div class="flex gap-3 rounded-card border border-line bg-surface-2 px-4 py-3.5">
             <KeyRound class="mt-0.5 size-4 flex-none text-muted" aria-hidden="true" />
-            <p class="text-[12.5px] leading-5 text-subtle">
+            <p class="text-caption leading-5 text-subtle">
               Your other devices stay linked — no need to set them up again. What this device
               already downloaded stays on it.
             </p>
@@ -248,7 +248,7 @@ export function DeviceManager(): JSX.Element {
         >
           <div class="flex gap-3 rounded-card border border-line bg-surface-2 p-3.5">
             <ShieldCheck class="mt-0.5 size-[19px] flex-none text-accent" aria-hidden="true" />
-            <p class="text-[13.5px] leading-5 text-subtle">
+            <p class="text-note leading-5 text-subtle">
               {pendingRoleChange.role === "admin" ? (
                 <>
                   <strong class="text-ink">{pendingRoleChange.name}</strong> will remain connected,
@@ -294,7 +294,7 @@ function KeyStatus({ rotating, waiting }: { rotating: boolean; waiting: number }
   return (
     <span
       class={cx(
-        "mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium",
+        "mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-meta font-medium",
         pending
           ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
           : "bg-success/12 text-success",
@@ -322,7 +322,7 @@ function RoleBadge({ role }: { role: DeviceRole }): JSX.Element {
   return (
     <span
       class={cx(
-        "inline-flex flex-none items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.08em]",
+        "inline-flex flex-none items-center gap-1 rounded-full px-2 py-0.5 font-mono text-meta font-medium uppercase tracking-[0.08em]",
         role === "owner"
           ? "bg-amber-500/12 text-amber-700 dark:text-amber-300"
           : role === "admin"
@@ -413,7 +413,7 @@ function AddDeviceModal({
             // of red text floating in the dialog.
             <div class="flex w-full gap-3 rounded-card border border-danger/25 bg-danger-soft p-3.5 text-danger">
               <AlertCircle class="mt-0.5 size-[19px] flex-none" aria-hidden="true" />
-              <p class="text-[13px] font-medium leading-5">
+              <p class="text-note font-medium leading-5">
                 {cameraError}. Use “Paste code” instead.
               </p>
             </div>
@@ -426,7 +426,7 @@ function AddDeviceModal({
             />
           )}
           {busy && (
-            <p class="flex items-center gap-2 text-[13px] text-muted">
+            <p class="flex items-center gap-2 text-note text-muted">
               <Spinner /> Authorizing…
             </p>
           )}
@@ -443,7 +443,9 @@ function AddDeviceModal({
         >
           <textarea
             rows={5}
-            class="field-input no-scrollbar break-all font-mono text-[12.5px] leading-relaxed"
+            // The explicit size overrides `.field-input`, so it has to carry
+            // the mobile step-up itself or iOS Safari zooms in on focus.
+            class="field-input no-scrollbar break-all font-mono text-caption leading-relaxed max-md:text-lead"
             placeholder="Paste the linking code from the new device"
             value={pasted}
             onInput={(e) => setPasted((e.target as HTMLTextAreaElement).value)}
@@ -471,7 +473,7 @@ function SegItem({
       type="button"
       onClick={onClick}
       class={cx(
-        "inline-flex flex-1 items-center justify-center gap-[7px] rounded-[10px] py-2 text-[13.5px] font-medium transition [&_svg]:size-4",
+        "inline-flex flex-1 items-center justify-center gap-[7px] rounded-[10px] py-2 text-note font-medium transition [&_svg]:size-4",
         active ? "bg-surface text-ink shadow-soft" : "text-muted hover:text-ink",
       )}
     >

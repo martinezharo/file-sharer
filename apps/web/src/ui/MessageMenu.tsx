@@ -43,7 +43,7 @@ export function MessageMenu({
   if (confirmingGlobalDelete) {
     return (
       <Modal title="Delete on all devices?" onClose={onClose}>
-        <div class="px-5 pb-5 pt-1 text-sm leading-relaxed text-muted">
+        <div class="px-5 pb-5 pt-1 text-body leading-relaxed text-muted">
           <p>
             This message will be removed from every device linked to this space, including the ones
             that are offline right now — they&apos;ll delete it as soon as they reconnect.

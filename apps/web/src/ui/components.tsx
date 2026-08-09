@@ -65,8 +65,8 @@ export function Button({
         BUTTON_BASE,
         BUTTON_VARIANTS[variant],
         size === "sm"
-          ? "h-[34px] w-auto px-3 text-[13px] rounded-[10px]"
-          : "h-[42px] w-full px-4 text-[14.5px]",
+          ? "h-[34px] w-auto px-3 text-note rounded-[10px]"
+          : "h-[42px] w-full px-4 text-body",
         cls as string,
       )}
     >
@@ -115,7 +115,7 @@ export function Logo({ size = "md" }: { size?: "md" | "lg" }): JSX.Element {
         <Shield strokeWidth={2.25} fill="currentColor" stroke="none" />
       </span>
       {!lg && (
-        <span class="font-mono text-[12.5px] font-medium uppercase tracking-[0.16em] text-ink">
+        <span class="font-mono text-caption font-medium uppercase tracking-[0.16em] text-ink">
           file<span class="text-accent">·</span>sharer
         </span>
       )}
@@ -152,7 +152,7 @@ export function Toasts(): JSX.Element {
           key={t.id}
           role={t.kind === "error" ? "alert" : "status"}
           class={cx(
-            "animate-toast-in flex items-center gap-2.5 rounded-card border border-line bg-elevated px-3.5 py-3 text-[13.5px] font-medium text-ink shadow-float [&_svg]:size-[18px] [&_svg]:flex-none",
+            "animate-toast-in flex items-center gap-2.5 rounded-card border border-line bg-elevated px-3.5 py-3 text-note font-medium text-ink shadow-float [&_svg]:size-[18px] [&_svg]:flex-none",
             t.kind === "error" && "border-danger/40",
           )}
         >
@@ -214,7 +214,7 @@ export function Modal({ title, onClose, children }: ModalProps): JSX.Element {
         onClick={(e) => e.stopPropagation()}
       >
         <header class="flex flex-none items-center justify-between py-4 pl-[22px] pr-[18px]">
-          <h2 id={titleId} class="text-[17px] font-semibold">
+          <h2 id={titleId} class="text-title-sm font-semibold">
             {title}
           </h2>
           {onClose && (

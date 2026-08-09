@@ -42,7 +42,10 @@ body {
       color-mix(in srgb, var(--accent) 16%, transparent),
       transparent 70%
     ), var(--bg);
-  font-size: 16px;
+  /* `1rem`, not `16px`: the rest of this sheet sizes text in `rem`, so
+     pinning the root to a pixel value would silently discard the reader's
+     browser font-size preference for the whole page. */
+  font-size: 1rem;
   line-height: 1.6;
 }
 

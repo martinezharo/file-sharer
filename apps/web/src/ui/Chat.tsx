@@ -119,7 +119,7 @@ export function Chat(): JSX.Element {
         <div class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2">
           <div
             role="status"
-            class="flex items-center gap-2 rounded-full bg-elevated px-3.5 py-[7px] text-[12.5px] font-medium text-ink shadow-pop"
+            class="flex items-center gap-2 rounded-full bg-elevated px-3.5 py-[7px] text-caption font-medium text-ink shadow-pop"
           >
             <Spinner class="!size-[13px] !border-[1.5px]" />
             <span>Receiving {downloading === 1 ? "1 file" : `${downloading} files`}…</span>
@@ -157,11 +157,11 @@ function EmptyState(): JSX.Element {
       <div class="surface-card grid size-14 place-items-center rounded-xl2 text-accent [&_svg]:size-[26px]">
         <Lock />
       </div>
-      <div class="font-mono text-[10px] font-medium uppercase tracking-[0.2em] text-accent">
+      <div class="font-mono text-meta font-medium uppercase tracking-[0.2em] text-accent">
         End-to-end encrypted
       </div>
-      <h3 class="-mt-1.5 text-[19px]">Your private channel</h3>
-      <p class="text-sm leading-relaxed text-muted">
+      <h3 class="-mt-1.5 text-title">Your private channel</h3>
+      <p class="text-body leading-relaxed text-muted">
         Messages and files you send are encrypted on this device and synced only across your own
         linked devices.
       </p>
@@ -261,7 +261,10 @@ function MessageBubble({
       {mine && <MenuTrigger onOpen={openFromTrigger} />}
       <div
         class={cx(
-          "msg-bubble max-w-[min(80%,540px)] rounded-card text-[14.5px] leading-normal transition-shadow max-md:max-w-[86%]",
+          // A phone held at arm's length is not a monitor: the desktop
+          // reading size steps up on narrow screens, where every messaging
+          // app people compare this to sits at 16-17px.
+          "msg-bubble max-w-[min(80%,540px)] rounded-card text-body leading-normal transition-shadow max-md:max-w-[86%] max-md:text-lead",
           message.file ? "p-[7px]" : "px-[13px] py-[9px]",
           mine
             ? "rounded-br-[5px] bg-accent text-on-accent shadow-soft"
@@ -280,8 +283,8 @@ function MessageBubble({
         {displayDeviceName && (
           <div
             class={cx(
-              "mb-1 max-w-full truncate text-[11px] font-medium leading-tight",
-              mine ? "text-on-accent/75" : "text-subtle",
+              "mb-1 max-w-full truncate text-meta font-medium leading-tight max-md:text-caption",
+              mine ? "text-on-accent-muted" : "text-subtle",
             )}
             title={displayDeviceName}
           >
@@ -291,8 +294,8 @@ function MessageBubble({
         {message.senderVerified === "invalid" && (
           <div
             class={cx(
-              "mb-1.5 flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-[11.5px] font-medium leading-tight [&_svg]:size-[13px]",
-              mine ? "bg-black/15 text-on-accent" : "bg-danger-soft text-danger",
+              "mb-1.5 flex items-center gap-1.5 rounded-[8px] px-2 py-1 text-meta font-medium leading-tight max-md:text-caption [&_svg]:size-[13px]",
+              mine ? "bg-black/15 text-on-accent dark:bg-white/15" : "bg-danger-soft text-danger",
             )}
             title="This message's signature doesn't match the sending device's key, so it may not come from the device it claims."
           >
@@ -306,7 +309,14 @@ function MessageBubble({
           </div>
         )}
         {message.corrupted && (
-          <div class="flex items-center gap-1.5 text-[13px] italic opacity-75 [&_svg]:size-[14px]">
+          <div
+            class={cx(
+              "flex items-center gap-1.5 text-note italic [&_svg]:size-[14px]",
+              // `opacity` here dimmed the text below 4.5:1 on a sent bubble;
+              // the muted token is the same intent at a legible contrast.
+              mine ? "text-on-accent-muted" : "text-muted",
+            )}
+          >
             <AlertCircle class="flex-none" />
             Couldn&apos;t decrypt this message
           </div>
@@ -314,23 +324,26 @@ function MessageBubble({
         {message.file && <FileAttachment message={message} mine={mine} />}
         <div
           class={cx(
-            "mt-1 flex items-center justify-end gap-[5px] font-mono text-[10px] tracking-[0.03em] [&_svg]:size-[14px]",
-            mine ? "text-on-accent/70" : "text-muted",
+            "mt-1 flex items-center justify-end gap-[5px] font-mono text-meta tracking-[0.03em] [&_svg]:size-[14px]",
+            mine ? "text-on-accent-muted" : "text-muted",
           )}
         >
           <span>{formatTime(message.createdAt)}</span>
           {mine && message.status === "queued" && <Clock aria-label="Waiting to send" />}
           {mine && message.status === "uploading" && (
-            <Spinner class="!size-[12px] !border-[1.5px] !border-white/40 !border-t-white" />
+            <Spinner class="!size-[12px] !border-[1.5px] !border-current/40 !border-t-current" />
           )}
           {mine && message.status === "sent" && <CheckCheck />}
           {mine && message.status === "failed" && (
             <>
-              <AlertCircle class="!opacity-100" aria-label="Failed to send" />
+              <AlertCircle aria-label="Failed to send" />
+              {/* Sized to WCAG 2.2's 24x24 minimum target rather than to the
+                  11px caption it sits in — a retry is a real action, and it
+                  was previously a bare 13px-tall run of text. */}
               <button
                 type="button"
                 onClick={() => void retryMessage(message)}
-                class="!opacity-100 font-medium underline underline-offset-2 hover:opacity-80"
+                class="-my-1 inline-flex min-h-6 items-center rounded-full px-2 font-medium underline underline-offset-2 transition hover:bg-black/10 dark:hover:bg-white/10"
               >
                 Retry
               </button>
@@ -452,7 +465,11 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
     <div
       class={cx(
         "flex min-w-[240px] items-center gap-[11px] rounded-[10px] px-2.5 py-2",
-        mine ? "bg-black/15" : "bg-surface-3",
+        // The inset has to move *away* from the bubble's text colour, not
+        // always darker: in the dark theme the accent is light and the text
+        // on it is near-black, so darkening this panel pushed even the file
+        // name down to 4.17:1. Lightening it there restores 6.9:1.
+        mine ? "bg-black/15 dark:bg-white/15" : "bg-surface-3",
       )}
     >
       {thumbnailUrl ? (
@@ -473,13 +490,13 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         </div>
       )}
       <div class="min-w-0 flex-1">
-        <div class="truncate text-[13.5px] font-medium" title={file.name}>
+        <div class="truncate text-note font-medium max-md:text-body" title={file.name}>
           {file.name}
         </div>
         <div
           class={cx(
-            "font-mono text-[11px] tracking-[0.02em]",
-            mine ? "text-on-accent/70" : "text-muted",
+            "font-mono text-meta tracking-[0.02em] max-md:text-caption",
+            mine ? "text-on-accent-muted" : "text-muted",
           )}
         >
           {formatBytes(file.size)}
@@ -490,12 +507,15 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
         {message.direction === "out" ? (
           message.status === "uploading" ? (
             <span class="grid size-[34px] place-items-center">
-              <Spinner class={mine ? "!border-white/40 !border-t-white" : undefined} />
+              <Spinner class={mine ? "!border-current/40 !border-t-current" : undefined} />
             </span>
           ) : message.status === "failed" ? (
             <IconButton
               label="Retry upload"
-              class={cx("size-[34px]", mine && "text-white/90 hover:bg-white/15 hover:text-white")}
+              class={cx(
+                "size-[34px]",
+                mine && "text-on-accent hover:bg-black/15 dark:hover:bg-white/25",
+              )}
               onClick={() => void retryMessage(message)}
             >
               <RotateCw />
@@ -503,7 +523,10 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
           ) : (
             <IconButton
               label="Save file"
-              class={cx("size-[34px]", mine && "text-white/90 hover:bg-white/15 hover:text-white")}
+              class={cx(
+                "size-[34px]",
+                mine && "text-on-accent hover:bg-black/15 dark:hover:bg-white/25",
+              )}
               onClick={() => void saveFile(message)}
             >
               <Download />
@@ -611,7 +634,10 @@ function Composer(): JSX.Element {
         </button>
         <textarea
           ref={taRef}
-          class="no-scrollbar max-h-[160px] flex-1 self-center border-none bg-transparent px-1.5 py-[7px] text-[15px] leading-[1.45] text-ink outline-none placeholder:text-muted focus:!shadow-none focus-visible:!shadow-none"
+          // `max-md:text-lead` is load-bearing, not cosmetic: under 16px iOS
+          // Safari zooms the viewport the moment the composer takes focus and
+          // never zooms back out.
+          class="no-scrollbar max-h-[160px] flex-1 self-center border-none bg-transparent px-1.5 py-[7px] text-body-lg leading-[1.45] text-ink outline-none placeholder:text-muted focus:!shadow-none focus-visible:!shadow-none max-md:text-lead"
           placeholder="Write a message"
           value={text}
           rows={1}
