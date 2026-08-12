@@ -11,11 +11,11 @@
  *  - **the at-rest vault envelope**, because a lock protects the *device* (all
  *    of its spaces at once), not a single space.
  *
- * A space's name is local to this device: the server never sees it, and it is
- * handed to a device that joins through the encrypted pairing package rather
- * than stored anywhere shared. While an at-rest lock is set it is sealed under
- * the same content key as the message history — a list of space names is a
- * meaningful thing to leak on its own.
+ * A space's name is shared by every device in it, but the server never sees it
+ * in the clear: it holds a GroupKey-encrypted copy (see sync/spaceName.ts), and
+ * this is where the readable one lives. While an at-rest lock is set it is
+ * sealed under the same content key as the message history — a list of space
+ * names is a meaningful thing to leak on its own.
  */
 
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
@@ -38,6 +38,13 @@ export interface SpaceRecord {
   /** Null when the space was never named, or while this device is locked. */
   name: string | null;
   createdAt: number;
+  /**
+   * Server-assigned time of the shared name this device has adopted, or 0 when
+   * it has never seen one. Anything newer than this replaces the local name.
+   */
+  nameUpdatedAt: number;
+  /** A rename made here has not reached the space yet. Until it does, it wins. */
+  namePending: boolean;
 }
 
 /** A row as stored: the name is sealed whenever a lock is set. */
@@ -46,6 +53,9 @@ interface StoredSpace {
   createdAt: number;
   name?: string | null;
   sealed?: Sealed;
+  /** Absent on rows written before names were shared: unsynced, like a new space. */
+  nameUpdatedAt?: number;
+  namePending?: boolean;
 }
 
 interface RegistryDB extends DBSchema {
@@ -100,12 +110,13 @@ export async function globalMetaDelete(key: string): Promise<void> {
 /** Name context bound as AAD, so a sealed name cannot be moved onto another space. */
 const nameContext = (id: string): string => `space-name:${id}`;
 
-async function toStored(space: SpaceRecord): Promise<StoredSpace> {
-  if (space.name === null) return { id: space.id, createdAt: space.createdAt, name: null };
-  const sealed = await sealJson(space.name, nameContext(space.id));
+async function toStored(space: SpaceRecord, target?: KeyChoice): Promise<StoredSpace> {
+  const sync = { nameUpdatedAt: space.nameUpdatedAt, namePending: space.namePending };
+  if (space.name === null) return { id: space.id, createdAt: space.createdAt, name: null, ...sync };
+  const sealed = await sealJson(space.name, nameContext(space.id), target);
   return sealed
-    ? { id: space.id, createdAt: space.createdAt, sealed }
-    : { id: space.id, createdAt: space.createdAt, name: space.name };
+    ? { id: space.id, createdAt: space.createdAt, sealed, ...sync }
+    : { id: space.id, createdAt: space.createdAt, name: space.name, ...sync };
 }
 
 /** A sealed name this device cannot open right now reads as "unnamed". */
@@ -113,7 +124,19 @@ async function fromStored(stored: StoredSpace): Promise<SpaceRecord> {
   const name = stored.sealed
     ? ((await openJson<string>(stored.sealed, nameContext(stored.id)).catch(() => null)) ?? null)
     : (stored.name ?? null);
-  return { id: stored.id, createdAt: stored.createdAt, name };
+  return {
+    id: stored.id,
+    createdAt: stored.createdAt,
+    name,
+    nameUpdatedAt: stored.nameUpdatedAt ?? 0,
+    namePending: stored.namePending ?? false,
+  };
+}
+
+/** Write a record back, re-sealing its name under whatever key is in force. */
+async function writeSpace(space: SpaceRecord): Promise<SpaceRecord> {
+  await (await registry()).put("spaces", await toStored(space));
+  return space;
 }
 
 /** Every space on this device, oldest first. */
@@ -130,17 +153,61 @@ export async function getSpace(id: string): Promise<SpaceRecord | undefined> {
 
 /** Register a new space and return its record. The id is what the URL carries. */
 export async function addSpace(name: string | null): Promise<SpaceRecord> {
-  const record: SpaceRecord = { id: randomId(), name: name?.trim() || null, createdAt: Date.now() };
-  await (await registry()).put("spaces", await toStored(record));
-  return record;
+  return writeSpace({
+    id: randomId(),
+    name: name?.trim() || null,
+    createdAt: Date.now(),
+    // Whatever name it starts with is this device's own: either the user just
+    // typed it, or it came through the pairing package. The space's shared name
+    // (if it has one) arrives on the first poll and takes over from there.
+    nameUpdatedAt: 0,
+    namePending: false,
+  });
 }
 
+/**
+ * Rename the space here, and owe the rest of them the same name.
+ *
+ * The local write happens first and unconditionally, so the new name is on
+ * screen before anything touches the network; `namePending` is what makes the
+ * sync loop keep trying until every other device has it (sync/spaceName.ts).
+ */
 export async function renameSpace(id: string, name: string): Promise<SpaceRecord | undefined> {
   const current = await getSpace(id);
   if (!current) return undefined;
-  const updated: SpaceRecord = { ...current, name: name.trim() || null };
-  await (await registry()).put("spaces", await toStored(updated));
-  return updated;
+  return writeSpace({ ...current, name: name.trim() || null, namePending: true });
+}
+
+/** Take on the name another device published, dropping whatever this one called it. */
+export async function adoptSpaceName(
+  id: string,
+  name: string | null,
+  updatedAt: number,
+): Promise<SpaceRecord | undefined> {
+  const current = await getSpace(id);
+  if (!current) return undefined;
+  return writeSpace({ ...current, name, nameUpdatedAt: updatedAt, namePending: false });
+}
+
+/**
+ * Record that the space accepted `name` at `updatedAt`.
+ *
+ * The debt is only cleared when the name that landed is still the one this
+ * device holds: renaming again while the previous publish was in flight has to
+ * leave the newer name owed, or it would never be sent.
+ */
+export async function markSpaceNamePublished(
+  id: string,
+  name: string | null,
+  updatedAt: number,
+): Promise<SpaceRecord | undefined> {
+  const current = await getSpace(id);
+  if (!current) return undefined;
+  return writeSpace({
+    ...current,
+    nameUpdatedAt: updatedAt,
+    namePending: current.name !== name,
+  });
 }
 
 export async function removeSpace(id: string): Promise<void> {
@@ -156,14 +223,7 @@ export async function rewriteSpaceNames(target: KeyChoice): Promise<void> {
   const database = await registry();
   for (const stored of await database.getAll("spaces")) {
     const opened = await fromStored(stored);
-    const sealed =
-      opened.name === null ? null : await sealJson(opened.name, nameContext(opened.id), target);
-    await database.put(
-      "spaces",
-      sealed
-        ? { id: opened.id, createdAt: opened.createdAt, sealed }
-        : { id: opened.id, createdAt: opened.createdAt, name: opened.name },
-    );
+    await database.put("spaces", await toStored(opened, target));
   }
 }
 
@@ -178,7 +238,11 @@ export async function rewriteSpaceNames(target: KeyChoice): Promise<void> {
 export async function registerLegacySpace(): Promise<SpaceRecord> {
   const existing = await getSpace(LEGACY_SPACE_ID);
   if (existing) return existing;
-  const record: SpaceRecord = { id: LEGACY_SPACE_ID, name: null, createdAt: Date.now() };
-  await (await registry()).put("spaces", await toStored(record));
-  return record;
+  return writeSpace({
+    id: LEGACY_SPACE_ID,
+    name: null,
+    createdAt: Date.now(),
+    nameUpdatedAt: 0,
+    namePending: false,
+  });
 }

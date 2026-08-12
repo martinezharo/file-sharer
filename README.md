@@ -65,6 +65,14 @@ same origin — one deploy, no CORS.
   device keypairs are therefore extractable: what that used to buy was narrower than it looks,
   since the `GroupKey` beside them has to be extractable to be wrapped for other devices at all.
   The at-rest lock is what actually closes that, across the whole store rather than one key.
+- **Shared space name**: the space's name belongs to the space, not to whichever device typed it,
+  so renaming it anywhere renames it everywhere. It is stored server-side encrypted with the
+  `GroupKey` (never broadcast as a message, which would expire in 24 h), so a device that was off
+  for a week still comes back to the right name. The server holds a blob it cannot read; what it
+  learns is that the space has a name, roughly how long it is, and when it last changed.
+  Conflicts resolve on the server's clock — the write that lands last wins, and every other device
+  adopts it on its next poll — and a rotation leaves the blob under the old epoch until some
+  device that can still read it re-seals it under the current one.
 - **Attested device roster**: the device that adds another one scans its keys out-of-band, so it
   signs them — and every other device verifies that signature instead of believing the roster the
   server serves. The space creator self-signs, a joining device inherits the introducer's verified

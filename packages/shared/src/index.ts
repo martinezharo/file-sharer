@@ -377,6 +377,43 @@ export interface PairingPayload {
   spaceName?: string;
 }
 
+/**
+ * The space's name as every device in it sees it, encrypted with the GroupKey.
+ *
+ * The server stores this blob and hands it back on every poll, which is what
+ * makes a rename reach devices that were offline when it happened — including
+ * ones that were away for longer than a message survives. It never sees the
+ * name itself: it only learns that the space has one, roughly how long it is,
+ * and when it last changed.
+ *
+ * `updatedAt` is assigned by the server, exactly like a message's `createdAt`:
+ * two devices that rename at the same time both write, the later write wins,
+ * and the other one adopts it on its next poll. Client clocks never take part,
+ * so a device with a wrong clock cannot pin its name forever.
+ */
+export interface SpaceNameRecord {
+  /** AES-GCM ciphertext (base64url), or null when the name was cleared. */
+  encryptedName: string | null;
+  nameIv: string | null;
+  /**
+   * Epoch of the GroupKey that encrypted it. Unlike a device name, this is
+   * re-encrypted after a rotation (by any device that can still read it), so a
+   * device that joins later — and only ever holds the current key — can read it.
+   */
+  nameKeyEpoch: number;
+  /** When the server recorded this name. The tiebreaker between devices. */
+  updatedAt: number;
+}
+
+/** Publish the space's name for every device. Same shape, minus the server's timestamp. */
+export type UpdateSpaceNameRequest = Omit<SpaceNameRecord, "updatedAt">;
+
+export interface UpdateSpaceNameResponse {
+  ok: true;
+  /** The time the server recorded, which is what decides later conflicts. */
+  updatedAt: number;
+}
+
 /** One device's public identity: what a signature is checked against. */
 export interface DeviceKeyBundle {
   deviceId: string;
@@ -499,6 +536,13 @@ export interface PendingMessagesResponse {
    * on the device that happened to press "Revoke".
    */
   rotationPending: boolean;
+  /**
+   * The space's shared name, or null while nobody has ever set one. Rides on
+   * the poll rather than on an endpoint of its own: it is a handful of bytes,
+   * and carrying it here is what lets a device notice a rename through the very
+   * request it already makes, with no round-trip of its own.
+   */
+  spaceName: SpaceNameRecord | null;
 }
 
 /** One rotated GroupKey wrapped for one remaining device. */

@@ -13,6 +13,7 @@ import { notifySpace } from "../realtime";
 import type { RouteContext } from "../router";
 import { rateLimit } from "../security";
 import { pendingKeysFor } from "./keys";
+import { spaceNameRecord } from "./space";
 
 /** Create message metadata + one pending delivery row per other active device. */
 export async function sendMessage(c: RouteContext): Promise<Response> {
@@ -193,39 +194,47 @@ export async function pendingMessages(c: RouteContext): Promise<Response> {
     throw new ApiError("bad_request", "Invalid 'since' cursor");
   }
 
-  const rows = await c.env.DB.prepare(
-    `SELECT m.id AS id,
-            m.key_epoch AS keyEpoch,
-            m.sender_device_id AS senderDeviceId,
-            d.name_enc AS senderNameEnc,
-            d.name_iv AS senderNameIv,
-            d.name_key_epoch AS senderNameEpoch,
-            m.encrypted_payload AS encryptedPayload,
-            m.iv AS iv,
-            m.file_r2_key AS fileR2Key,
-            m.file_iv AS fileIv,
-            m.file_meta AS fileMeta,
-            m.file_meta_iv AS fileMetaIv,
-            m.deletes_message_id AS deletesMessageId,
-            m.signature AS signature,
-            m.created_at AS createdAt
-       FROM messages m
-       JOIN delivery_status ds ON ds.message_id = m.id
-       LEFT JOIN devices d ON d.id = m.sender_device_id AND d.group_id = m.group_id
-      WHERE ds.device_id = ?
-        AND ds.downloaded_at IS NULL
-        AND m.created_at > ?
-      ORDER BY m.created_at ASC
-      LIMIT 200`,
-  )
-    .bind(auth.deviceId, since)
-    .all<PendingMessage>();
+  // Everything this answer needs is fetched at once rather than one query after
+  // another: this is the app's hottest request, and none of the three depends on
+  // the others.
+  const [rows, keys, spaceName] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT m.id AS id,
+              m.key_epoch AS keyEpoch,
+              m.sender_device_id AS senderDeviceId,
+              d.name_enc AS senderNameEnc,
+              d.name_iv AS senderNameIv,
+              d.name_key_epoch AS senderNameEpoch,
+              m.encrypted_payload AS encryptedPayload,
+              m.iv AS iv,
+              m.file_r2_key AS fileR2Key,
+              m.file_iv AS fileIv,
+              m.file_meta AS fileMeta,
+              m.file_meta_iv AS fileMetaIv,
+              m.deletes_message_id AS deletesMessageId,
+              m.signature AS signature,
+              m.created_at AS createdAt
+         FROM messages m
+         JOIN delivery_status ds ON ds.message_id = m.id
+         LEFT JOIN devices d ON d.id = m.sender_device_id AND d.group_id = m.group_id
+        WHERE ds.device_id = ?
+          AND ds.downloaded_at IS NULL
+          AND m.created_at > ?
+        ORDER BY m.created_at ASC
+        LIMIT 200`,
+    )
+      .bind(auth.deviceId, since)
+      .all<PendingMessage>(),
+    pendingKeysFor(c.env, auth.groupId, auth.deviceId),
+    spaceNameRecord(c.env, auth.groupId),
+  ]);
 
   return json({
     messages: rows.results,
-    keys: await pendingKeysFor(c.env, auth.groupId, auth.deviceId),
+    keys,
     keyEpoch: auth.groupKeyEpoch,
     rotationPending: auth.rotationPending,
+    spaceName,
   } satisfies PendingMessagesResponse);
 }
 

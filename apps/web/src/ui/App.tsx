@@ -22,7 +22,8 @@ import {
   spacePath,
 } from "../state/route";
 import { ready, session, sessionRevoked, startupError } from "../state/session";
-import { activeSpace, renameActiveSpace } from "../state/spaces";
+import { activeSpace } from "../state/spaces";
+import { renameActiveSpace } from "../sync/spaceName";
 import { online } from "../state/ui";
 import { Chat } from "./Chat";
 import { DeviceManager } from "./DeviceManager";
@@ -356,7 +357,8 @@ function RenameSpaceModal({ name, onClose }: { name: string; onClose: () => void
           />
         </label>
         <p class="text-caption leading-5 text-muted">
-          The name is stored on this device only, and shared with a device when you link it.
+          Every device in this space will use this name. It is encrypted before it leaves this one,
+          so only your devices can read it.
         </p>
         <div class="flex flex-col-reverse gap-2.5 sm:flex-row sm:justify-end">
           <Button class="sm:w-auto" variant="ghost" type="button" onClick={onClose}>

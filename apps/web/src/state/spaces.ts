@@ -7,7 +7,8 @@
  * signals the rest of the UI reads, and closing it is what unloads them.
  *
  * The registry lives in db/spaces.ts; this module is the reactive view of it
- * plus the lifecycle: open, create, rename, forget.
+ * plus the lifecycle: open, create, forget. Renaming is in sync/spaceName.ts,
+ * because a name belongs to the space rather than to the device holding it.
  */
 
 import { signal } from "@preact/signals";
@@ -23,7 +24,6 @@ import {
   listSpaces,
   registerLegacySpace,
   removeSpace,
-  renameSpace,
 } from "../db/spaces";
 import {
   META_LEGACY_VAULT,
@@ -138,13 +138,18 @@ export async function beginSpace(name: string | null): Promise<SpaceRecord> {
   return record;
 }
 
-export async function renameActiveSpace(name: string): Promise<void> {
-  const current = activeSpace.value;
-  if (!current) return;
-  const updated = await renameSpace(current.id, name);
-  if (!updated) return;
-  activeSpace.value = updated;
-  spaces.value = spaces.value.map((space) => (space.id === updated.id ? updated : space));
+/**
+ * Mirror a record the registry just wrote into the reactive view.
+ *
+ * The name of a space changes from two directions — renamed here, or renamed on
+ * another device and adopted on the next poll (sync/spaceName.ts) — and both
+ * end here, so neither can update the list without updating the open space or
+ * the other way round.
+ */
+export function applySpaceRecord(record: SpaceRecord | undefined): void {
+  if (!record) return;
+  if (activeSpace.value?.id === record.id) activeSpace.value = record;
+  spaces.value = spaces.value.map((space) => (space.id === record.id ? record : space));
 }
 
 /**

@@ -17,6 +17,8 @@ import {
   type RotateKeyRequest,
   type RotateKeyResponse,
   type SendMessageRequest,
+  type UpdateSpaceNameRequest,
+  type UpdateSpaceNameResponse,
 } from "@file-sharer/shared";
 
 const BASE = "/api";
@@ -225,6 +227,10 @@ export const api = {
 
   ackKey(epoch: number, auth: Auth): Promise<AckKeyResponse> {
     return jsonRequest("POST", `/keys/${epoch}/ack`, { auth });
+  },
+
+  updateSpaceName(body: UpdateSpaceNameRequest, auth: Auth): Promise<UpdateSpaceNameResponse> {
+    return jsonRequest("PUT", "/groups/self/name", { jsonBody: body, auth });
   },
 
   listDevices(auth: Auth): Promise<DevicesListResponse> {
