@@ -17,13 +17,17 @@
     "db:migrate:local": "pnpm --filter @file-sharer/worker db:migrate:local",
     "db:migrate:remote": "pnpm --filter @file-sharer/worker db:migrate:remote",
     "test": "pnpm -r --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "typecheck": "pnpm -r --if-present typecheck && tsc --noEmit -p e2e/tsconfig.json",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format ."
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@playwright/test": "1.62.1",
+    "@types/node": "^26.2.0",
     "concurrently": "^10.0.4",
     "typescript": "^5.7.2"
   },

@@ -156,12 +156,34 @@ branch that adds one can't leave you with a schema the API doesn't match. See
 
 ```bash
 pnpm test           # PWA (crypto, outbox, share) + Worker (API, in workerd against real D1/R2)
+pnpm test:e2e       # the built PWA in a real browser, against a real Worker
 pnpm typecheck
 pnpm lint
 ```
 
 Worker tests run inside workerd with a real D1 and R2, and build the schema from the actual
 migrations — see `apps/worker/README.md`.
+
+### End-to-end tests
+
+`pnpm test:e2e` builds the PWA, serves it from the Worker on its own port and D1/R2 state
+(`.e2e-state/`, never the ones `pnpm dev` uses), and drives it with Playwright. It is not part of
+`pnpm test`: it takes minutes rather than seconds.
+
+What belongs here is only what a unit test structurally cannot see — a device closing the app and
+coming back to it, storage that outlives the page, the browser's own Back button. A device is a
+browser profile on disk (`e2e/device.ts`), so "close and reopen the PWA" is a real thing a test can
+say. Everything else belongs in vitest.
+
+Two things the suite does for the dev server's sake, both explained where they happen: it stubs the
+realtime WebSocket, and the Worker is kept alive by a loop. `wrangler dev` ends its whole session
+when a socket dies under it, and closing a browser mid-request is exactly that — so it restarts
+several times per run. The deployed Worker never sees any of this; it is the dev proxy that is
+fragile. If a run ever fails with the page showing unstyled prerendered HTML, that is what
+happened.
+
+Playwright's browsers are not vendored: set `PLAYWRIGHT_BROWSERS_PATH` to a shared location (or run
+`pnpm exec playwright install chromium` once).
 
 ## Deploy
 

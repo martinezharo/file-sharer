@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // The specs run in Node and drive a browser: they need both sets of globals,
+    // and the DOM one because `page.evaluate` bodies are browser code.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "declaration": false
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"]
+}
