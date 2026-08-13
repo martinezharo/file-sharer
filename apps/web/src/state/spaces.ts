@@ -19,6 +19,7 @@ import {
   type SpaceRecord,
   addSpace,
   getSpace,
+  globalMetaDelete,
   globalMetaGet,
   globalMetaSet,
   listSpaces,
@@ -95,9 +96,24 @@ export async function refreshSpaces(): Promise<void> {
   spaces.value = await listSpaces();
 }
 
-/** The space to fall back to when a URL doesn't name one (share target, PWA start). */
+/**
+ * The space the app was in when it was last left, if it was in one.
+ *
+ * This is what a launch with no space in the URL — the installed app's
+ * `start_url`, a bookmark to `/app` — reopens, so a device that only ever uses
+ * one space never has to step through a list of one to reach it.
+ */
 export function lastOpenedSpace(): Promise<string | undefined> {
   return globalMetaGet<string>(GLOBAL_LAST_SPACE);
+}
+
+/**
+ * Leave nothing to reopen into. Being on the space list is a place in its own
+ * right, so backing out to it is also how the user opts out of landing in a
+ * space on the next launch.
+ */
+export function forgetLastSpace(): Promise<void> {
+  return globalMetaDelete(GLOBAL_LAST_SPACE);
 }
 
 /**
@@ -163,5 +179,5 @@ export async function forgetSpace(spaceId: string): Promise<void> {
   await removeSpace(spaceId);
   spaces.value = spaces.value.filter((space) => space.id !== spaceId);
   if (activeSpace.value?.id === spaceId) closeSpace();
-  if ((await lastOpenedSpace()) === spaceId) await globalMetaSet(GLOBAL_LAST_SPACE, null);
+  if ((await lastOpenedSpace()) === spaceId) await forgetLastSpace();
 }

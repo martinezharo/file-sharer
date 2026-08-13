@@ -36,6 +36,48 @@ export function spacePath(spaceId: string, section: SpaceSection = "chat"): stri
   return section === "chat" ? base : `${base}/${section}`;
 }
 
+/** Where a launch that names no space goes, and whether the list stays behind it. */
+export interface StartupTarget {
+  path: string;
+  replace: boolean;
+}
+
+/**
+ * Which space `/app` opens in, if any — the installed app's `start_url`, a
+ * bookmark, an OS share.
+ *
+ * A share arrives with no space in the URL. With exactly one there is no choice
+ * to make; otherwise the app asks, and the content goes to whichever space is
+ * opened next (see `consumeSharedContent`) — guessing would put the user's
+ * content somewhere they didn't pick. That step is the app's own, so it
+ * replaces the list rather than leaving a history entry to back into.
+ *
+ * Failing that, the app reopens where it was left: the space it was in when it
+ * was last closed, if this device still has it. Most devices hold a single
+ * space, and walking through a list of one to reach it on every launch is a
+ * toll on the app's whole point. Here the list is kept behind the space, so
+ * Back still means "all spaces" — and stepping out to it forgets the space
+ * (see `applyRoute`), which is how a session can be left on the list and
+ * come back to it.
+ */
+export function startupSpaceTarget({
+  spaceIds,
+  lastSpaceId,
+  pendingShare,
+}: {
+  spaceIds: readonly string[];
+  lastSpaceId: string | undefined;
+  pendingShare: boolean;
+}): StartupTarget | undefined {
+  if (pendingShare) {
+    const only = spaceIds.length === 1 ? spaceIds[0] : undefined;
+    return only ? { path: spacePath(only), replace: true } : undefined;
+  }
+
+  if (!lastSpaceId || !spaceIds.includes(lastSpaceId)) return undefined;
+  return { path: spacePath(lastSpaceId), replace: false };
+}
+
 function parse(pathname: string): Route {
   if (pathname !== APP_PATH && !pathname.startsWith(`${APP_PATH}/`)) return { name: "landing" };
   const rest = pathname.slice(APP_PATH.length).replace(/^\/+|\/+$/g, "");

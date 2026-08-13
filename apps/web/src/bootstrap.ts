@@ -4,9 +4,9 @@ import { setAuthFailureHandler } from "./api/client";
 import { assertWebCryptoAvailable } from "./crypto/crypto";
 import { claimSharedContent } from "./share/incoming";
 import { loadLockState } from "./state/lock";
-import { navigate, route, spacePath } from "./state/route";
+import { navigate, route, startupSpaceTarget } from "./state/route";
 import { ready } from "./state/session";
-import { adoptLegacySpace, refreshSpaces, spaces } from "./state/spaces";
+import { adoptLegacySpace, lastOpenedSpace, refreshSpaces, spaces } from "./state/spaces";
 
 /** Load local state before the interactive app replaces the prerendered page. */
 export async function bootstrap(): Promise<void> {
@@ -32,12 +32,17 @@ export async function bootstrap(): Promise<void> {
   await refreshSpaces();
   ready.value = true;
 
-  // A share arrives with no space in the URL. With exactly one there is no
-  // choice to make; otherwise the app asks, and the content is delivered to
-  // whichever space is opened next (see `consumeSharedContent`).
-  const only = spaces.value[0];
-  if (hasPendingShare() && only && spaces.value.length === 1 && route.value.name === "spaces") {
-    navigate(spacePath(only.id), { replace: true });
+  // The URL names no space: a share from the OS, the installed app's start_url,
+  // a bookmark to `/app`. Resolved before the effect below, so the space it
+  // picks is the first route the app ever applies rather than a second one on
+  // top of the list.
+  if (route.value.name === "spaces") {
+    const target = startupSpaceTarget({
+      spaceIds: spaces.value.map((space) => space.id),
+      lastSpaceId: await lastOpenedSpace(),
+      pendingShare: hasPendingShare(),
+    });
+    if (target) navigate(target.path, { replace: target.replace });
   }
 
   // From here the URL drives everything: a click, the back button and a cold

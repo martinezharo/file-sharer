@@ -73,6 +73,7 @@ import {
   activeSpace,
   beginSpace,
   closeSpace,
+  forgetLastSpace,
   forgetSpace,
   openSpace,
   refreshSpaces,
@@ -879,9 +880,14 @@ export async function applyRoute(): Promise<void> {
       stopSync();
       closeSpace();
     }
-    // Linking is offered from the space list, and a pairing that was in flight
-    // before the user stepped into a space is still valid.
-    if (current.name === "spaces") await resumeLinking();
+    if (current.name === "spaces") {
+      // Standing on the list is where the app is now: the next launch opens
+      // here rather than stepping back into the space just left.
+      await forgetLastSpace();
+      // Linking is offered from the space list, and a pairing that was in
+      // flight before the user stepped into a space is still valid.
+      await resumeLinking();
+    }
     return;
   }
 
@@ -939,6 +945,12 @@ export function handleAuthFailure(): void {
   sessionRevoked.value = true;
   stopSync();
   stopLinkPolling();
+  // A space this device was thrown out of is not a place to reopen into. The
+  // notice covering it cannot be dismissed, so resuming here on the next launch
+  // would put every *other* space on this device out of reach until this one is
+  // left — which is a choice the user should be making from the list, not from
+  // behind a modal they cannot close.
+  void forgetLastSpace();
 }
 
 function errorMessage(error: unknown): string {

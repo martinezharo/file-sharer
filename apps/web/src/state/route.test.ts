@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { APP_PATH, navigate, route, showSpaceSection, spacePath } from "./route";
+import {
+  APP_PATH,
+  navigate,
+  route,
+  showSpaceSection,
+  spacePath,
+  startupSpaceTarget,
+} from "./route";
 
 /**
  * The router runs without a DOM here (no `history`), which is also the shape it
@@ -83,5 +90,44 @@ describe("showSpaceSection", () => {
     showSpaceSection("chat");
 
     expect(route.value).toEqual({ name: "spaces" });
+  });
+});
+
+describe("startupSpaceTarget", () => {
+  const launch = (
+    over: Partial<Parameters<typeof startupSpaceTarget>[0]> = {},
+  ): ReturnType<typeof startupSpaceTarget> =>
+    startupSpaceTarget({ spaceIds: [], lastSpaceId: undefined, pendingShare: false, ...over });
+
+  it("reopens the space the app was last in, keeping the list behind it", () => {
+    expect(launch({ spaceIds: ["one", "two"], lastSpaceId: "two" })).toEqual({
+      path: spacePath("two"),
+      replace: false,
+    });
+  });
+
+  it("stays on the list when the app was last left there", () => {
+    expect(launch({ spaceIds: ["one"] })).toBeUndefined();
+  });
+
+  it("stays on the list when the remembered space is no longer on this device", () => {
+    expect(launch({ spaceIds: ["one"], lastSpaceId: "gone" })).toBeUndefined();
+  });
+
+  it("sends a share straight into the only space, replacing the list", () => {
+    expect(launch({ spaceIds: ["one"], pendingShare: true })).toEqual({
+      path: spacePath("one"),
+      replace: true,
+    });
+  });
+
+  it("asks where a share goes when the device has more than one space", () => {
+    expect(
+      launch({ spaceIds: ["one", "two"], lastSpaceId: "two", pendingShare: true }),
+    ).toBeUndefined();
+  });
+
+  it("has nowhere to go on a device with no spaces", () => {
+    expect(launch({ pendingShare: true })).toBeUndefined();
   });
 });
