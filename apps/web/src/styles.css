@@ -29,6 +29,7 @@
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
   --color-success: var(--c-success);
+  --color-success-ink: var(--c-success-ink);
 
   --radius-card: 14px;
   --radius-xl2: 20px;
@@ -103,6 +104,8 @@
   --c-danger: #e5484d;
   --c-danger-soft: color-mix(in srgb, var(--c-danger) 12%, transparent);
   --c-success: #30a46c;
+  /* Small success labels need a darker ink than the status fill itself. */
+  --c-success-ink: #18794e;
 
   --bg-grad: radial-gradient(
       80% 55% at 50% -8%,
@@ -143,6 +146,7 @@
     --c-danger: #ff6166;
     --c-danger-soft: color-mix(in srgb, var(--c-danger) 16%, transparent);
     --c-success: #3dd68c;
+    --c-success-ink: #69e0a5;
 
     --bg-grad: radial-gradient(
         75% 50% at 50% -10%,
