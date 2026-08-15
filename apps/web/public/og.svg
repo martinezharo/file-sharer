@@ -34,8 +34,8 @@
     <circle cx="6" cy="14" r="6" fill="#3dd68c"/>
     <text x="24" y="21">AES-256</text>
     <circle cx="206" cy="14" r="6" fill="#3dd68c"/>
-    <text x="224" y="21">FILES UP TO 50 MB</text>
+    <text x="224" y="21">FILES UP TO 50 MIB</text>
     <circle cx="556" cy="14" r="6" fill="#3dd68c"/>
-    <text x="574" y="21">OFFLINE-READY</text>
+    <text x="574" y="21">OFFLINE QUEUE</text>
   </g>
 </svg>

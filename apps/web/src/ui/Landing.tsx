@@ -47,8 +47,8 @@ const FEATURES: Feature[] = [
   },
   {
     icon: FileUp,
-    title: "Files up to 50 MB",
-    body: "Send documents, images, or archives. Delivered content is removed from the server automatically.",
+    title: "Files up to 50 MiB",
+    body: "Send documents, images, or archives. The server copy is removed after all active recipients acknowledge delivery, or cleaned up within 24 hours.",
   },
   {
     icon: WifiOff,
@@ -71,7 +71,7 @@ const STEPS: Feature[] = [
   {
     icon: Send,
     title: "Send without waiting",
-    body: "Send text and files when connected; if a recipient is offline, encrypted content waits for it.",
+    body: "Send text and files when connected; if a recipient is offline, delivery waits until it reconnects, with undelivered server copies cleaned up within 24 hours.",
   },
 ];
 
@@ -95,7 +95,7 @@ const FAQS: Faq[] = [
   },
   {
     q: "What is the maximum file size?",
-    a: "You can share files up to 50 MB. Delivered content is purged when active recipients acknowledge it; anything left over is cleaned up within 24 hours.",
+    a: "You can share files up to 50 MiB. The server copy is purged when active recipients acknowledge delivery; anything left over is cleaned up within 24 hours.",
   },
   {
     q: "Does it work offline?",
@@ -249,10 +249,10 @@ function Hero(): JSX.Element {
               <span class="size-1.5 rounded-full bg-success" /> No account
             </li>
             <li class="flex items-center gap-1.5">
-              <span class="size-1.5 rounded-full bg-success" /> Up to 50 MB per file
+              <span class="size-1.5 rounded-full bg-success" /> Up to 50 MiB per file
             </li>
             <li class="flex items-center gap-1.5">
-              <span class="size-1.5 rounded-full bg-success" /> Offline-ready
+              <span class="size-1.5 rounded-full bg-success" /> Offline queue
             </li>
           </ul>
         </div>
@@ -409,7 +409,7 @@ function Security(): JSX.Element {
   const points = [
     {
       term: "Content encryption (AES-GCM 256)",
-      desc: "A local group key encrypts messages, files, and file metadata. Keys rotate when membership changes.",
+      desc: "A local group key encrypts messages, files, and file metadata. Keys rotate when a device is revoked.",
     },
     {
       term: "Device identity (ECDH P-256)",
