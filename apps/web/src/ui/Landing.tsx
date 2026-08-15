@@ -234,7 +234,7 @@ function Hero(): JSX.Element {
               centring two different-length pills under each other. */}
           <div class="mt-8 flex flex-wrap items-center gap-3 max-md:justify-center max-sm:flex-col max-sm:items-stretch">
             <OpenAppLink class="inline-flex h-12 items-center justify-center gap-2 rounded-card bg-accent px-5 text-body-lg font-semibold text-on-accent shadow-accent transition hover:bg-accent-hover active:scale-[0.98] [&_svg]:size-[18px]">
-              Create your private space
+              Open the app
               <ArrowRight />
             </OpenAppLink>
             <a
