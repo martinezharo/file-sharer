@@ -1,7 +1,7 @@
 # TODO — file-sharer
 
 > Remaining work only. Anything that is done has been removed from this file:
-> the crypto and authorization model is documented in the README, and the
+> the crypto and authorization model is documented in docs/security.md, and the
 > reasoning behind each change lives in its commit.
 >
 > Legend: 🔴 critical · 🟠 important · 🟡 improvement · 🔵 nice-to-have
@@ -21,7 +21,7 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 1. Security
 
-- [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages: a signature proves *what* was sent, not *when* or *in what order*. Now cheap to close — the signing key is already there, so it is a per-device monotonic counter inside the signed statement (and a receiver-side "highest seen" per sender). Documented in the README meanwhile.
+- [ ] 🟡🛠️ **No replay/reorder protection.** The server could resend, duplicate or reorder messages: a signature proves *what* was sent, not *when* or *in what order*. Now cheap to close — the signing key is already there, so it is a per-device monotonic counter inside the signed statement (and a receiver-side "highest seen" per sender). Documented in [docs/security.md](docs/security.md) meanwhile.
 - [ ] 🔵🛠️ **Shared files sit in Cache Storage in clear** until `consumeSharedContent` drains them. The dedicated stash is now replaced and cleared more aggressively; encrypting the hand-off remains a design decision (see `AUDIT.md`).
 
 ## 2. Privacy
@@ -79,5 +79,4 @@ Biggest remaining items (need design decisions, don't do blindly):
 
 ## 8. Documentation / observability
 
-- [ ] 🟡⚡ Explicitly document the **threat model** (what the server sees, what it does NOT protect: metadata, replay) in the README. Partially done: the README's "What this does *not* protect against" now covers rotation's limits, the two residuals of sender authenticity, replay and metadata; it still needs the positive half (exactly what the server does see).
 - [ ] 🔵⚡ Review that the Worker's observability (`observability.enabled`) **doesn't log** sensitive material (today `console.error` for unhandled errors; correct, keep watching). `index.test.ts` pins the shape of the 500 response so an internal message can never reach the client.

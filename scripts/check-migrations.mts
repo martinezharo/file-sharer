@@ -1,7 +1,7 @@
 /**
  * Deploy guard: refuse to auto-apply a migration the running Worker can't survive.
  *
- * `pnpm deploy` applies migrations before publishing the Worker, so for a few
+ * `pnpm run deploy` applies migrations before publishing the Worker, so for a few
  * seconds the OLD code runs against the NEW schema. That is fine while a
  * migration only adds things, and breaks the moment it removes or narrows one:
  * the live Worker queries a column that just disappeared.

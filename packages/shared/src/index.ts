@@ -237,8 +237,8 @@ export interface MessageSignatureFields {
  * It covers the sender id and the ciphertexts, so the server can neither
  * re-attribute a message to another device nor swap in a different payload.
  * `createdAt` is deliberately absent: it is assigned by the server, so the
- * sender could not sign it. Ordering/replay is a separate problem (see the
- * threat model in the README).
+ * sender could not sign it. Ordering/replay is a separate problem (see
+ * docs/security.md).
  *
  * The ciphertexts are length-prefixed because, unlike ids and keys, base64url
  * payloads sit next to each other and an absent field must not be confusable
