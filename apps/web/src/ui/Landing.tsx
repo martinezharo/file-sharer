@@ -288,7 +288,7 @@ function ChatPreview(): JSX.Element {
             3 devices
           </span>
         </span>
-        <span class="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--c-success)_14%,transparent)] px-2.5 py-1 font-mono text-meta font-medium uppercase tracking-[0.12em] text-success [&_svg]:size-3">
+        <span class="inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_srgb,var(--c-success)_14%,transparent)] px-2.5 py-1 font-mono text-meta font-medium uppercase tracking-[0.12em] text-success-ink [&_svg]:size-3">
           <Lock />
           Encrypted
         </span>
@@ -312,7 +312,7 @@ function ChatPreview(): JSX.Element {
 
         <div class="max-w-[85%] self-end rounded-xl2 rounded-br-[6px] bg-accent px-3.5 py-2.5 text-note leading-relaxed text-on-accent">
           Marta · +1 (202) 555-0147
-          <span class="mt-1 flex items-center justify-end gap-1 font-mono text-meta opacity-80">
+          <span class="mt-1 flex items-center justify-end gap-1 font-mono text-meta text-on-accent-muted">
             09:42
             <CheckCheck class="size-3" />
           </span>
