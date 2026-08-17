@@ -13,20 +13,6 @@ file-sharer is an end-to-end encrypted PWA for sharing text and files between yo
 
 The application-level security model and its limitations are documented in [Security](docs/security.md). The project is not independently security-audited.
 
-## Repository layout
-
-```text
-file-sharer/
-├── apps/web        # Preact/Vite PWA, Web Crypto, IndexedDB, service worker
-├── apps/worker     # Cloudflare Worker, API, D1, R2, cron, Durable Object
-├── packages/shared # Types, DTOs, constants, and signed-statement formats
-├── e2e             # Playwright browser tests
-├── scripts          # Migration and end-to-end verification helpers
-└── docs             # Project documentation
-```
-
-The Worker serves `/api/*` and the built PWA from the same origin. D1 stores metadata and delivery state, R2 stores encrypted file blobs, and one hibernating Durable Object per space fans out contentless sync notifications.
-
 ## Quick start
 
 Requirements: Node.js 20 or newer and pnpm 10.33 or newer.
@@ -50,14 +36,11 @@ pnpm build          # production PWA build
 
 ## Documentation
 
-- [Documentation index](docs/README.md)
-- [Architecture](docs/architecture.md)
-- [Security model and threat model](docs/security.md)
-- [Development and testing](docs/development.md)
-- [Cloudflare setup and deployment](docs/deployment.md)
-- [API reference](docs/api.md)
-- [Worker package notes](apps/worker/README.md)
-- [Open design work](TODO.md) and [audit decisions](AUDIT.md)
+Start with the [documentation index](docs/README.md), which links the
+architecture, security model, development, deployment, and API guides. The
+[Worker package notes](apps/worker/README.md) cover package-specific commands;
+[TODO.md](TODO.md) and [AUDIT.md](AUDIT.md) record open design work and deferred
+decisions.
 
 ## Project status
 
