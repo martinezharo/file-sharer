@@ -267,6 +267,22 @@
     background: var(--bg-grad);
   }
 
+  /* An installed app is never meant to be on the marketing page: it starts at
+     /app, and `pwa.ts` sends it there when the OS restores it at "/" — which
+     is what installs made before the app had its own start URL still do. That
+     redirect is JavaScript, and the page is prerendered, so it would paint
+     first and flash the marketing content at every launch.
+
+     Only the prerendered copy is hidden, and only in the installed display
+     modes: the moment the app renders anything of its own the class is gone,
+     so walking into the landing page from inside the app still shows it. In a
+     browser tab (`display-mode: browser`) nothing changes at all. */
+  @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+    .landing-prerendered {
+      display: none;
+    }
+  }
+
   /* Hide the scrollbar on editing fields that aren't browsing regions. */
   .no-scrollbar {
     scrollbar-width: none;

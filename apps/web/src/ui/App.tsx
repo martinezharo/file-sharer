@@ -32,7 +32,7 @@ import { Landing } from "./Landing";
 import { LockScreen } from "./LockScreen";
 import { type MenuAnchor, Menu, MenuItem, MenuSeparator, anchorBelow } from "./Menu";
 import { Spaces } from "./Spaces";
-import { Button, IconButton, Modal, Spinner, Toasts, cx } from "./components";
+import { Button, IconButton, Loading, Modal, Toasts, cx } from "./components";
 
 const SECTIONS: Array<{ id: SpaceSection; label: string; icon: typeof MessagesSquare }> = [
   { id: "chat", label: "Messages", icon: MessagesSquare },
@@ -77,14 +77,6 @@ function CurrentView(): JSX.Element {
   if (!space || space.id !== current.spaceId || !session.value) return <Loading />;
 
   return <SpaceView section={current.section} />;
-}
-
-function Loading(): JSX.Element {
-  return (
-    <div class="bg-grad grid h-full place-items-center">
-      <Spinner large />
-    </div>
-  );
 }
 
 function StartupError({ message }: { message: string }): JSX.Element {

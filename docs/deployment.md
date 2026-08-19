@@ -53,7 +53,7 @@ From the root, this runs the following sequence:
 
 1. `pnpm check:migrations` inspects migrations that are still pending on remote D1.
 2. `pnpm db:migrate:remote` applies the accepted migrations.
-3. `pnpm --filter @file-sharer/web build` builds the PWA, service worker, SSR output, and prerendered public pages.
+3. `pnpm --filter @file-sharer/web build` renders the SSR bundle, then builds the PWA and its service worker, prerendering the public page (`index.html`) and the app shell (`app.html`) into `dist`.
 4. `pnpm --filter @file-sharer/worker run deploy` publishes the Worker and its static assets.
 
 Migrations run before the new Worker is published. This is safe for additive schema changes because the old Worker can continue to use the wider schema during the short transition.

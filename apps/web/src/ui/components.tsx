@@ -142,6 +142,24 @@ export function Spinner({
 }
 
 /* --------------------------------------------------------------------------
+   Loading
+   ------------------------------------------------------------------------ */
+/**
+ * The app with nothing to show yet: booting, or opening a space.
+ *
+ * This is also what `/app` is prerendered as (see `entry-server.tsx`), so the
+ * very first paint of the installed app is already this screen and the boot
+ * finishes into the same markup rather than replacing it.
+ */
+export function Loading(): JSX.Element {
+  return (
+    <div class="bg-grad grid h-full place-items-center">
+      <Spinner large />
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
    Toasts
    ------------------------------------------------------------------------ */
 export function Toasts(): JSX.Element {

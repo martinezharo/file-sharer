@@ -51,16 +51,23 @@ clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// The public pages are real static HTML. Only the app gets the SPA fallback —
-// the landing page and every space under /app — so an unknown URL remains a 404
-// and search engines do not see the application shell at every path. Never
-// serve the API from cache.
-registerRoute(
-  new NavigationRoute(createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/(?:\?.*)?$/, /^\/app(?:\/|\?|$)/],
+// The public pages are real static HTML. Only two navigations are answered
+// from the precache, and with a different document each — so an unknown URL
+// remains a 404 and search engines do not see the application shell at every
+// path. Never serve the API from cache.
+//
+// `/app` and every space under it get `app.html`, whose prerendered content is
+// the app's loading screen. Serving them `index.html` (the marketing page) is
+// what made the installed app flash the landing page on launch: the shell was
+// painted long before the bundle had booted and could replace it.
+const navigation = (document: string, allowlist: RegExp[]): NavigationRoute =>
+  new NavigationRoute(createHandlerBoundToURL(document), {
+    allowlist,
     denylist: [/^\/api\//],
-  }),
-);
+  });
+
+registerRoute(navigation("app.html", [/^\/app(?:\/|\?|$)/]));
+registerRoute(navigation("index.html", [/^\/(?:\?.*)?$/]));
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);

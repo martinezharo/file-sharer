@@ -44,9 +44,19 @@ router.patch("/api/devices/:id/role", updateDeviceRole);
 
 export { SpaceHub };
 
-/** `/app` and everything under it: the client-routed part of the site. */
+/** The document every `/app` URL is served, prerendered as the app's own shell. */
+const APP_SHELL = "/app.html";
+
+/**
+ * `/app` and everything under it: the client-routed part of the site.
+ *
+ * The shell's own URL counts as one of them: the service worker precaches it
+ * under that name, and the assets binding answers a request for a `.html` file
+ * with a redirect to its extensionless path — a hop on every install, and a
+ * redirected response to keep in the cache the app launches from offline.
+ */
 function isAppPath(pathname: string): boolean {
-  return pathname === "/app" || pathname.startsWith("/app/");
+  return pathname === "/app" || pathname.startsWith("/app/") || pathname === APP_SHELL;
 }
 
 function redirectHttpToHttps(request: Request): Response | undefined {
@@ -120,8 +130,13 @@ export default {
     // would 404 those paths (there is no file at /app/<id>), so they are served
     // the shell here. It is never indexed: there is nothing public behind it,
     // and each URL is local to one device.
+    //
+    // The shell is `app.html`, not the marketing page: it is prerendered as the
+    // app's loading screen, so an installed app that launches here paints the
+    // app from the first frame instead of flashing the landing page until its
+    // bundle boots. The service worker serves the same document offline.
     if (isAppPath(url.pathname)) {
-      const shell = await env.ASSETS.fetch(new URL("/index.html", url.origin));
+      const shell = await env.ASSETS.fetch(new URL(APP_SHELL, url.origin));
       return withSecurityHeaders(shell, { noIndex: true });
     }
 

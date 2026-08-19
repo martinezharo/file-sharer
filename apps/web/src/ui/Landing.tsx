@@ -118,8 +118,13 @@ const FAQS: Faq[] = [
  * what crawlers and no-JS clients see. Every call to action leads to `/app`,
  * where the spaces live — nothing here creates or touches one, which is also
  * why this page needs no state beyond the header's scroll flourish.
+ *
+ * `prerendered` marks that baked-in copy, the one that paints before any of
+ * the app's code has run. Only it hides itself inside an installed app (see
+ * `.landing-prerendered` in styles.css); once the app is running, it decides
+ * for itself whether the landing page is where it should be.
  */
-export function Landing(): JSX.Element {
+export function Landing({ prerendered = false }: { prerendered?: boolean }): JSX.Element {
   const [scrolled, setScrolled] = useState(false);
 
   // Header appearance follows scroll position.
@@ -131,7 +136,7 @@ export function Landing(): JSX.Element {
   }, []);
 
   return (
-    <div class="bg-grad min-h-full">
+    <div class={cx("bg-grad min-h-full", prerendered && "landing-prerendered")}>
       <SiteHeader scrolled={scrolled} />
       <main>
         <Hero />

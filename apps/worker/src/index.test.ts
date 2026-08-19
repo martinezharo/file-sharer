@@ -38,7 +38,23 @@ describe("fetch dispatch", () => {
     const response = await SELF.fetch("https://x.dev/some/spa/route");
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("static asset");
+    expect(await response.text()).toBe("static asset /some/spa/route");
+  });
+
+  it("serves every /app URL the app shell, never the marketing document", async () => {
+    // `/app.html` is the shell's own name, which the service worker precaches.
+    for (const path of ["/app", "/app/local-id", "/app/local-id/devices", "/app.html"]) {
+      const response = await SELF.fetch(`https://x.dev${path}`);
+
+      expect(await response.text()).toBe("static asset /app.html");
+      expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    }
+  });
+
+  it("keeps the public page on the prerendered marketing document", async () => {
+    const response = await SELF.fetch("https://file-sharer.4oli.com/");
+
+    expect(await response.text()).toBe("static asset /");
   });
 
   it("applies the security headers to API responses, errors included", async () => {

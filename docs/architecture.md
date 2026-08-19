@@ -70,6 +70,17 @@ The client sends a signed tombstone through the same message and delivery pipeli
 | IndexedDB | Device sessions, private key material, GroupKey epochs, local message history, and cached file content. | Persists until the user removes it. There is currently no automatic local history-retention policy. |
 | Cache Storage | A short-lived cleartext hand-off for browser share-target files before the app consumes them. | The namespace is bounded and cleared around consumption; see the open decision in [AUDIT.md](../AUDIT.md). |
 
+## Documents served
+
+The site is built as two HTML documents, and which one a URL is served decides what the browser paints before any application code has run.
+
+| URL | Document | Prerendered content |
+| --- | --- | --- |
+| `/` | `dist/index.html` | The marketing page, so crawlers and no-JS clients get real HTML. |
+| `/app`, `/app/<id>`, `/app/<id>/devices` | `dist/app.html` | The app's own loading screen. |
+
+Both come out of the client build (`apps/web/scripts/prerender.mjs`, run before the service worker's precache manifest is globbed) and are served by the Worker and, offline, by the service worker's navigation routes. Serving the marketing document for `/app` is what made the installed app flash the landing page at every launch: the shell paints long before the bundle can replace it.
+
 ## Delivery guarantees
 
 The Durable Object is an acceleration path, not a delivery system. A dropped WebSocket notification, a frozen tab, or a proxy that kills the connection can delay synchronization, but pending rows in D1 remain the source of truth. Normal polling runs every 8 seconds; while a real-time connection is healthy, the client keeps a 60-second safety-net poll.

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/generate-og.mjs && tsc --noEmit && tsc --noEmit -p tsconfig.sw.json && vite build && vite build --ssr src/entry-server.tsx --outDir dist-server && node scripts/prerender.mjs",
+    "build": "node scripts/generate-og.mjs && tsc --noEmit && tsc --noEmit -p tsconfig.sw.json && vite build --ssr src/entry-server.tsx --outDir dist-server && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json",
     "test": "vitest run"

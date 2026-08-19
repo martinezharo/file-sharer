@@ -31,7 +31,10 @@ export default defineConfig(async () => {
           r2Buckets: ["FILES"],
           durableObjects: { SPACE_HUB: "SpaceHub" },
           serviceBindings: {
-            ASSETS: () => new Response("static asset", { status: 200 }),
+            // Echoes the asset it was asked for, so the tests can tell which
+            // document a path is served.
+            ASSETS: (request: Request) =>
+              new Response(`static asset ${new URL(request.url).pathname}`, { status: 200 }),
           },
           // Read by the setup file to build the schema before each test file.
           bindings: { TEST_MIGRATIONS: migrations },

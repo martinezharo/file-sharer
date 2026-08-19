@@ -2,6 +2,7 @@ import preact from "@preact/preset-vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { prerender } from "./scripts/prerender.mjs";
 
 function cliValue(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
@@ -28,6 +29,9 @@ export default defineConfig(({ isSsrBuild }) => ({
     ...(isSsrBuild
       ? []
       : [
+          // Before VitePWA: the service worker's precache manifest is globbed
+          // from `dist`, and both documents have to be final by then.
+          prerender(),
           VitePWA({
             registerType: "autoUpdate",
             // We register the service worker ourselves in main.tsx (bundled, so the
