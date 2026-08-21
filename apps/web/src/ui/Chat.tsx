@@ -2,41 +2,52 @@ import {
   AlertCircle,
   ArrowUp,
   CheckCheck,
+  CircleDashed,
   Clock,
   Download,
-  File as FileIcon,
   FileArchive,
   FileAudio,
   FileCode,
+  File as FileIcon,
   FileImage,
   FileSpreadsheet,
   FileText,
   FileVideo,
   Lock,
   MoreVertical,
+  Paperclip,
   Plus,
   RotateCw,
   ShieldAlert,
+  X,
 } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import {
+  consumeViewOnce,
   listDevicesDecrypted,
+  releaseViewOnce,
   retryMessage,
   saveFile,
-  sendFileMessages,
-  sendTextMessage,
+  sendStagedComposer,
 } from "../actions";
 import { getFile } from "../db/store";
 import { getClipboardImages } from "../share/transfer";
+import {
+  composerDraft,
+  stageFiles,
+  stagedFiles,
+  unstageFile,
+  viewOnceArmed,
+} from "../state/composer";
+import { type AlbumEntry, albumCaption, groupMessages } from "../state/grouping";
 import { visibleMessages } from "../state/messages";
 import { session } from "../state/session";
-import { composerDraft } from "../state/ui";
 import { syncNow } from "../sync/sync";
-import type { FileRef, LocalMessage } from "../types";
-import { cx, formatBytes, formatTime, IconButton, Spinner } from "./components";
+import type { FileRef, LocalMessage, MessageStatus } from "../types";
 import type { MenuAnchor } from "./Menu";
 import { MessageMenu } from "./MessageMenu";
+import { Button, IconButton, Modal, Spinner, cx, formatBytes, formatTime } from "./components";
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 
@@ -79,6 +90,9 @@ function countIncomingDownloads(list: LocalMessage[]): number {
 
 export function Chat(): JSX.Element {
   const list = visibleMessages.value;
+  // Files picked together arrive as separate messages; the chat puts them back
+  // together (see state/grouping.ts).
+  const entries = groupMessages(list);
   const downloading = countIncomingDownloads(list);
   const currentSession = session.value;
   const myId = currentSession?.deviceId;
@@ -132,17 +146,28 @@ export function Chat(): JSX.Element {
             other messaging app. */}
         <div class="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-end gap-[3px]">
           {list.length === 0 && <EmptyState />}
-          {list.map((message, index) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              mine={message.senderDeviceId === myId}
-              deviceName={deviceNames.get(message.senderDeviceId)}
-              // The name answers "who sent this?", so it is only worth repeating
-              // when the answer changes.
-              showSender={list[index - 1]?.senderDeviceId !== message.senderDeviceId}
-            />
-          ))}
+          {entries.map((entry, index) => {
+            const first = entry.kind === "album" ? entry.messages[0]! : entry.message;
+            const previous = entries[index - 1];
+            const previousSender =
+              previous === undefined
+                ? undefined
+                : previous.kind === "album"
+                  ? previous.messages[0]?.senderDeviceId
+                  : previous.message.senderDeviceId;
+            return (
+              <MessageBubble
+                key={entry.key}
+                message={first}
+                {...(entry.kind === "album" ? { album: entry } : {})}
+                mine={first.senderDeviceId === myId}
+                deviceName={deviceNames.get(first.senderDeviceId)}
+                // The name answers "who sent this?", so it is only worth
+                // repeating when the answer changes.
+                showSender={previousSender !== first.senderDeviceId}
+              />
+            );
+          })}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -169,6 +194,22 @@ function EmptyState(): JSX.Element {
   );
 }
 
+/**
+ * The delivery state a group of messages should show as one.
+ *
+ * Ordered by how much is left to do, so an album never claims to be sent while
+ * one of its files is still uploading, and a single failure is never hidden by
+ * its siblings' ticks.
+ */
+const STATUS_ORDER: MessageStatus[] = ["failed", "uploading", "queued", "sent"];
+
+function worstStatus(parts: readonly LocalMessage[]): MessageStatus {
+  for (const status of STATUS_ORDER) {
+    if (parts.some((part) => part.status === status)) return status;
+  }
+  return "sent";
+}
+
 /** How long a touch must be held on a bubble before the menu opens. */
 const LONG_PRESS_MS = 400;
 /** Finger drift beyond this cancels the long-press (it's a scroll). */
@@ -176,11 +217,14 @@ const LONG_PRESS_DRIFT_PX = 10;
 
 function MessageBubble({
   message,
+  album,
   mine,
   deviceName,
   showSender,
 }: {
+  /** The message itself, or the batch's representative when `album` is set. */
   message: LocalMessage;
+  album?: AlbumEntry;
   mine: boolean;
   deviceName?: string;
   showSender: boolean;
@@ -188,6 +232,20 @@ function MessageBubble({
   const displayDeviceName = showSender
     ? (message.senderDeviceName ?? deviceName ?? (mine ? session.value?.deviceName : undefined))
     : undefined;
+
+  // Every message the bubble stands for: one, or the whole album.
+  const parts = album?.messages ?? [message];
+  const caption = album ? albumCaption(album) : message.text;
+  // A view-once message shows a seal instead of its content until it is opened,
+  // and opening it is what retracts it from the other devices. An outgoing one
+  // is never openable: you wrote it, and consuming your own copy would destroy
+  // the message for everyone without anybody having read it.
+  const sealed = !!message.viewOnce;
+  const openable = sealed && message.direction === "in";
+  const [viewing, setViewing] = useState(false);
+  // An album is as far along as its least-advanced file: one tick means every
+  // file in it landed, and one spinner means at least one is still going up.
+  const status = worstStatus(parts);
 
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   const pressTimer = useRef<number | null>(null);
@@ -265,7 +323,7 @@ function MessageBubble({
           // reading size steps up on narrow screens, where every messaging
           // app people compare this to sits at 16-17px.
           "msg-bubble max-w-[min(80%,540px)] rounded-card text-body leading-normal transition-shadow max-md:max-w-[86%] max-md:text-lead",
-          message.file ? "p-[7px]" : "px-[13px] py-[9px]",
+          message.file || album ? "p-[7px]" : "px-[13px] py-[9px]",
           mine
             ? "rounded-br-[5px] bg-accent text-on-accent shadow-soft"
             : "surface-card rounded-bl-[5px] text-ink",
@@ -303,12 +361,8 @@ function MessageBubble({
             Sender couldn&apos;t be verified
           </div>
         )}
-        {message.text && (
-          <div class="whitespace-pre-wrap break-words">
-            <Linkify text={message.text} />
-          </div>
-        )}
-        {message.corrupted && (
+        {sealed && <ViewOnceSeal mine={mine} openable={openable} onOpen={() => setViewing(true)} />}
+        {!sealed && message.corrupted && (
           <div
             class={cx(
               "flex items-center gap-1.5 text-note italic [&_svg]:size-[14px]",
@@ -321,7 +375,39 @@ function MessageBubble({
             Couldn&apos;t decrypt this message
           </div>
         )}
-        {message.file && <FileAttachment message={message} mine={mine} />}
+        {!sealed &&
+          (album ? (
+            <div class="flex flex-col gap-[3px]">
+              {album.messages.map((part) => (
+                <FileAttachment key={part.id} message={part} mine={mine} />
+              ))}
+              {album.messages.length < album.expected && (
+                <div
+                  class={cx(
+                    "px-1.5 py-1 text-meta max-md:text-caption",
+                    mine ? "text-on-accent-muted" : "text-muted",
+                  )}
+                >
+                  {album.expected - album.messages.length} more on the way…
+                </div>
+              )}
+            </div>
+          ) : (
+            message.file && <FileAttachment message={message} mine={mine} />
+          ))}
+        {/* Under the attachment, not above it: a caption describes what it
+            hangs from, and reading it first leaves the reader holding a
+            sentence with nothing to attach it to yet. */}
+        {!sealed && caption && (
+          <div
+            class={cx(
+              "whitespace-pre-wrap break-words",
+              (album || message.file) && "px-1.5 pb-0.5 pt-[7px]",
+            )}
+          >
+            <Linkify text={caption} />
+          </div>
+        )}
         <div
           class={cx(
             "mt-1 flex items-center justify-end gap-[5px] font-mono text-meta tracking-[0.03em] [&_svg]:size-[14px]",
@@ -329,12 +415,12 @@ function MessageBubble({
           )}
         >
           <span>{formatTime(message.createdAt)}</span>
-          {mine && message.status === "queued" && <Clock aria-label="Waiting to send" />}
-          {mine && message.status === "uploading" && (
+          {mine && status === "queued" && <Clock aria-label="Waiting to send" />}
+          {mine && status === "uploading" && (
             <Spinner class="!size-[12px] !border-[1.5px] !border-current/40 !border-t-current" />
           )}
-          {mine && message.status === "sent" && <CheckCheck />}
-          {mine && message.status === "failed" && (
+          {mine && status === "sent" && <CheckCheck />}
+          {mine && status === "failed" && (
             <>
               <AlertCircle aria-label="Failed to send" />
               {/* Sized to WCAG 2.2's 24x24 minimum target rather than to the
@@ -342,7 +428,7 @@ function MessageBubble({
                   was previously a bare 13px-tall run of text. */}
               <button
                 type="button"
-                onClick={() => void retryMessage(message)}
+                onClick={() => void Promise.all(parts.map(retryMessage))}
                 class="-my-1 inline-flex min-h-6 items-center rounded-full px-2 font-medium underline underline-offset-2 transition hover:bg-black/10 dark:hover:bg-white/10"
               >
                 Retry
@@ -352,9 +438,11 @@ function MessageBubble({
         </div>
       </div>
       {!mine && <MenuTrigger onOpen={openFromTrigger} />}
+      {viewing && <ViewOnceViewer message={message} onClose={() => setViewing(false)} />}
       {menu && (
         <MessageMenu
           message={message}
+          {...(album ? { album: album.messages } : {})}
           anchor={menu}
           alignRight={mine}
           onClose={() => setMenu(null)}
@@ -369,6 +457,130 @@ function MessageBubble({
  * real pointer (`.msg-actions-trigger` is display:none elsewhere) — touch
  * users long-press the bubble instead.
  */
+/**
+ * What a view-once message looks like before it is opened.
+ *
+ * The content is deliberately not rendered behind a blur or an overlay: it is
+ * not in the DOM at all until the reader asks for it. Anything softer would
+ * mean "the first device that opens it" was really "the first device that
+ * happened to sync while in the foreground".
+ */
+function ViewOnceSeal({
+  mine,
+  openable,
+  onOpen,
+}: {
+  mine: boolean;
+  openable: boolean;
+  onOpen: () => void;
+}): JSX.Element {
+  const body = (
+    <>
+      <span
+        class={cx(
+          "grid size-9 flex-none place-items-center rounded-full [&_svg]:size-[18px]",
+          mine ? "bg-white/90 text-accent" : "bg-accent-soft text-accent",
+        )}
+      >
+        <CircleDashed />
+      </span>
+      <span class="min-w-0 text-left">
+        <span class="block font-medium">Temporary</span>
+        <span class={cx("block text-caption", mine ? "text-on-accent-muted" : "text-muted")}>
+          {openable ? "Tap to open once" : "Disappears once opened"}
+        </span>
+      </span>
+    </>
+  );
+
+  if (!openable) {
+    return <span class="-mx-1 flex items-center gap-2.5 px-1 py-0.5">{body}</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      class="-mx-1 flex w-full items-center gap-2.5 rounded-[10px] px-1 py-0.5 transition hover:bg-black/5 dark:hover:bg-white/10"
+    >
+      {body}
+    </button>
+  );
+}
+
+/**
+ * Reading a view-once message.
+ *
+ * Opening it retracts it from every *other* device immediately, and closing it
+ * erases the copy here. The split is what makes the promise literal: a second
+ * device can no longer reach the message from the moment this one opens it,
+ * while the person who opened it still gets to finish reading.
+ *
+ * If the app dies with the viewer open the message survives, sealed. That
+ * failure direction is the safe one — nothing is lost that the user has not
+ * read.
+ */
+function ViewOnceViewer({
+  message,
+  onClose,
+}: {
+  message: LocalMessage;
+  onClose: () => void;
+}): JSX.Element {
+  useEffect(() => {
+    void consumeViewOnce(message);
+  }, [message.id]);
+
+  function done(): void {
+    onClose();
+    void releaseViewOnce(message);
+  }
+
+  return (
+    <Modal title="Temporary message" onClose={done}>
+      <div class="flex gap-2.5 rounded-card bg-accent-soft p-3 text-accent">
+        <CircleDashed class="mt-0.5 size-[17px] flex-none" />
+        <p class="text-note font-medium leading-5">
+          Already removed from your other devices. It goes from this one when you close it.
+        </p>
+      </div>
+      {message.text && (
+        <p class="whitespace-pre-wrap break-words text-body leading-relaxed text-ink">
+          <Linkify text={message.text} />
+        </p>
+      )}
+      {message.file && (
+        <div class="flex items-center gap-2.5 rounded-[10px] bg-surface-3 p-2">
+          <div class="grid size-10 flex-none place-items-center rounded-[10px] bg-surface text-accent [&_svg]:size-5">
+            <FileTypeIcon mime={message.file.mime} />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-note font-medium" title={message.file.name}>
+              {message.file.name}
+            </div>
+            <div class="font-mono text-meta tracking-[0.02em] text-muted">
+              {formatBytes(message.file.size)}
+            </div>
+          </div>
+          {message.fileState === "downloaded" && (
+            <IconButton
+              label="Save file"
+              class="size-[34px]"
+              onClick={() => void saveFile(message)}
+            >
+              <Download />
+            </IconButton>
+          )}
+        </div>
+      )}
+      <div class="flex justify-end">
+        <Button class="sm:w-auto" onClick={done}>
+          Done
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 function MenuTrigger({
   onOpen,
 }: {
@@ -566,8 +778,26 @@ function FileAttachment({ message, mine }: { message: LocalMessage; mine: boolea
   );
 }
 
+/**
+ * The composer.
+ *
+ * Two rules decide the layout. **Left is how you send** — the view-once
+ * toggle, which stays visible at all times so the mode can be armed *or
+ * disarmed* with text already in the field, and is reachable when the share
+ * sheet hands the composer a draft it did not type. **Right is what you send**
+ * — attach, then send. The old `+` becomes a paperclip and moves next to the
+ * send button, because it opens the file picker directly and never promised a
+ * menu.
+ *
+ * Its contents live in `state/composer.ts` rather than in local state: a drop
+ * anywhere in the window, a paste, and a share from another app all fill the
+ * same queue, and all of them used to bypass the composer entirely by sending
+ * on the spot.
+ */
 function Composer(): JSX.Element {
-  const [text, setText] = useState("");
+  const text = composerDraft.value;
+  const queue = stagedFiles.value;
+  const armed = viewOnceArmed.value;
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -578,34 +808,19 @@ function Composer(): JSX.Element {
     ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
   }
 
-  // Pull in shared text (Web Share Target). `subscribe` also fires with the
-  // current value on mount, covering shares that arrive before this renders.
-  useEffect(
-    () =>
-      composerDraft.subscribe((draft) => {
-        if (!draft) return;
-        composerDraft.value = "";
-        setText((prev) => (prev ? `${prev}\n${draft}` : draft));
-        requestAnimationFrame(() => {
-          autosize();
-          taRef.current?.focus();
-        });
-      }),
-    [],
-  );
+  // The draft can be filled from outside the component (Web Share Target, a
+  // drop), so the textarea has to resize to content it did not receive by
+  // keystroke.
+  useEffect(autosize, [text]);
 
   function submit(): void {
-    const value = text.trim();
-    if (!value) return;
-    setText("");
+    void sendStagedComposer();
     requestAnimationFrame(autosize);
-    void sendTextMessage(value);
   }
 
   function onPickFile(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    if (files.length > 0) void sendFileMessages(files);
+    stageFiles(Array.from(input.files ?? []));
     input.value = "";
   }
 
@@ -613,56 +828,135 @@ function Composer(): JSX.Element {
     const images = getClipboardImages(event.clipboardData);
     if (images.length === 0) return;
 
+    // Staged rather than sent: a pasted screenshot is exactly the kind of thing
+    // people want to say something about.
     event.preventDefault();
-    void sendFileMessages(images);
+    stageFiles(images);
   }
 
-  const canSend = !!text.trim();
+  const canSend = !!text.trim() || queue.length > 0;
 
   return (
     <div class="flex-none px-6 pb-[calc(16px+env(safe-area-inset-bottom))] pt-2 max-md:px-[14px] max-md:pb-[calc(14px+env(safe-area-inset-bottom))]">
-      <div class="surface-card mx-auto flex max-w-[760px] items-end gap-1.5 rounded-[24px] px-2 py-2 !shadow-pop">
-        <input ref={fileRef} type="file" multiple hidden onChange={onPickFile} />
-        <button
-          type="button"
-          aria-label="Attach file"
-          title="Attach file"
-          onClick={() => fileRef.current?.click()}
-          class="grid size-9 flex-none place-items-center rounded-full text-subtle transition hover:bg-surface-3 hover:text-ink active:scale-90 [&_svg]:size-[21px]"
-        >
-          <Plus strokeWidth={2.25} />
-        </button>
-        <textarea
-          ref={taRef}
-          // `max-md:text-lead` is load-bearing, not cosmetic: under 16px iOS
-          // Safari zooms the viewport the moment the composer takes focus and
-          // never zooms back out.
-          class="no-scrollbar max-h-[160px] flex-1 self-center border-none bg-transparent px-1.5 py-[7px] text-body-lg leading-[1.45] text-ink outline-none placeholder:text-muted focus:!shadow-none focus-visible:!shadow-none max-md:text-lead"
-          placeholder="Write a message"
-          value={text}
-          rows={1}
-          onPaste={onPaste}
-          onInput={(e) => {
-            setText((e.target as HTMLTextAreaElement).value);
-            autosize();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
+      <div
+        class={cx(
+          "surface-card mx-auto w-full max-w-[760px] rounded-[24px] !shadow-pop transition",
+          armed && "ring-2 ring-accent/60",
+        )}
+      >
+        {armed && (
+          <div class="flex items-center gap-2 border-b border-line px-3.5 pb-2 pt-2.5 text-caption font-medium text-accent">
+            <CircleDashed class="size-[15px] flex-none" />
+            <span class="flex-1">Temporary — disappears once opened</span>
+            <button
+              type="button"
+              aria-label="Turn off temporary"
+              onClick={() => (viewOnceArmed.value = false)}
+              class="grid size-6 flex-none place-items-center rounded-full transition hover:bg-accent-soft [&_svg]:size-[14px]"
+            >
+              <X />
+            </button>
+          </div>
+        )}
+
+        {/* Shown rather than hidden behind a badge: holding files back is only
+            worth the extra tap if you can see what is about to go. */}
+        {queue.length > 0 && (
+          <div class="no-scrollbar flex gap-2 overflow-x-auto border-b border-line px-2.5 py-2.5">
+            {queue.map((staged) => (
+              <div key={staged.id} class="relative w-[76px] flex-none">
+                <div class="grid h-[62px] place-items-center rounded-[10px] bg-surface-3 text-accent [&_svg]:size-6">
+                  <FileTypeIcon mime={staged.file.type} />
+                </div>
+                <button
+                  type="button"
+                  aria-label={`Remove ${staged.file.name}`}
+                  onClick={() => unstageFile(staged.id)}
+                  class="absolute -right-1 -top-1 grid size-[22px] place-items-center rounded-full bg-elevated text-subtle shadow-pop ring-1 ring-line transition hover:text-ink [&_svg]:size-[13px]"
+                >
+                  <X />
+                </button>
+                <div class="mt-1 truncate text-meta text-subtle" title={staged.file.name}>
+                  {staged.file.name}
+                </div>
+                <div class="font-mono text-meta text-muted">{formatBytes(staged.file.size)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div class="flex items-end gap-1.5 px-2 py-2">
+          <input ref={fileRef} type="file" multiple hidden onChange={onPickFile} />
+          <button
+            type="button"
+            aria-label="Send as a temporary message"
+            title="Temporary message"
+            aria-pressed={armed}
+            onClick={() => (viewOnceArmed.value = !armed)}
+            class={cx(
+              "grid size-9 flex-none place-items-center rounded-full transition active:scale-90 [&_svg]:size-[20px]",
+              armed
+                ? "bg-accent-soft text-accent"
+                : "text-subtle hover:bg-surface-3 hover:text-ink",
+            )}
+          >
+            <CircleDashed />
+          </button>
+          <textarea
+            ref={taRef}
+            // `max-md:text-lead` is load-bearing, not cosmetic: under 16px iOS
+            // Safari zooms the viewport the moment the composer takes focus and
+            // never zooms back out.
+            class="no-scrollbar max-h-[160px] flex-1 self-center border-none bg-transparent px-1.5 py-[7px] text-body-lg leading-[1.45] text-ink outline-none placeholder:text-muted focus:!shadow-none focus-visible:!shadow-none max-md:text-lead"
+            placeholder={
+              queue.length > 0 ? "Add a comment…" : armed ? "Temporary message" : "Write a message"
             }
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Send message"
-          title="Send"
-          onClick={submit}
-          disabled={!canSend}
-          class="grid size-9 flex-none place-items-center rounded-full bg-accent text-on-accent transition hover:bg-accent-hover active:scale-90 disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted [&_svg]:size-[18px]"
-        >
-          <ArrowUp strokeWidth={2.5} />
-        </button>
+            value={text}
+            rows={1}
+            onPaste={onPaste}
+            onInput={(e) => {
+              composerDraft.value = (e.target as HTMLTextAreaElement).value;
+              autosize();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Attach file"
+            title="Attach file"
+            onClick={() => fileRef.current?.click()}
+            class="grid size-9 flex-none place-items-center rounded-full text-subtle transition hover:bg-surface-3 hover:text-ink active:scale-90 [&_svg]:size-[20px]"
+          >
+            <Paperclip />
+          </button>
+          <div class="relative flex-none">
+            <button
+              type="button"
+              aria-label="Send message"
+              title="Send"
+              onClick={submit}
+              disabled={!canSend}
+              class="grid size-9 place-items-center rounded-full bg-accent text-on-accent transition hover:bg-accent-hover active:scale-90 disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted [&_svg]:size-[18px]"
+            >
+              <ArrowUp strokeWidth={2.5} />
+            </button>
+            {/* The send button reflects the mode; it never controls it, so it
+                can still be changed after the message is written. */}
+            {armed && canSend && (
+              <span
+                aria-hidden="true"
+                class="pointer-events-none absolute -right-0.5 -top-0.5 grid size-[17px] place-items-center rounded-full bg-elevated text-accent ring-1 ring-line [&_svg]:size-[11px]"
+              >
+                <CircleDashed />
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

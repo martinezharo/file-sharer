@@ -1,8 +1,5 @@
 import { signal } from "@preact/signals";
 
-/** Text to push into the chat composer (e.g. from the Web Share Target). */
-export const composerDraft = signal<string>("");
-
 /** Connectivity hint shown in the header (best-effort). */
 export const online = signal(typeof navigator === "undefined" ? true : navigator.onLine);
 

@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   signingKeyPair: { privateKey: {} as CryptoKey, publicKey: {} as CryptoKey } as CryptoKeyPair,
   uploadFile: vi.fn(),
   sendMessage: vi.fn(),
+  encryptJson: vi.fn(),
 }));
 
 vi.mock("../db/store", () => ({
@@ -42,7 +43,10 @@ vi.mock("../db/store", () => ({
 vi.mock("../crypto/crypto", () => ({
   bufToBase64Url: () => "pinned-iv",
   encryptFile: async () => ({ ciphertext: new ArrayBuffer(16), iv: "pinned-iv" }),
-  encryptJson: async () => ({ ciphertext: "encrypted-meta", iv: "meta-iv" }),
+  encryptJson: async (_key: CryptoKey, payload: unknown, context: string) => {
+    state.encryptJson(payload, context);
+    return { ciphertext: "encrypted-meta", iv: "meta-iv" };
+  },
   encryptText: async () => ({ ciphertext: "encrypted-text", iv: "text-iv" }),
   randomBytes: () => new Uint8Array(12),
   signStatement: async (_key: CryptoKey, statement: string) => `signed(${statement})`,
@@ -265,5 +269,131 @@ describe("outbox deletions", () => {
 
     expect(result).toEqual({ sent: 1, failed: 0, remaining: 0 });
     expect(state.messages.get("tombstone-3")?.status).toBe("sent");
+  });
+});
+
+/**
+ * `fileMeta` is the message's metadata envelope, not the file's alone: it is
+ * how the album grouping and the view-once flag travel where the server can
+ * neither read nor strip them. These pin what actually goes into it.
+ */
+describe("outbox metadata envelope", () => {
+  beforeEach(() => {
+    state.messages.clear();
+    state.files.clear();
+    state.uploadFile.mockReset().mockResolvedValue(undefined);
+    state.sendMessage.mockReset().mockResolvedValue(undefined);
+    state.encryptJson.mockReset();
+  });
+
+  function queue(message: LocalMessage): void {
+    state.messages.set(message.id, message);
+    if (message.file) state.files.set(message.file.r2Key, new Blob(["data"]));
+  }
+
+  it("sends text and a file as one message, which is what a caption is", async () => {
+    queue({ ...queuedFile("m1", 0), text: "the car papers" });
+
+    await flushQueuedOutbox();
+
+    expect(state.sendMessage).toHaveBeenCalledTimes(1);
+    expect(state.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      id: "m1",
+      encryptedPayload: "encrypted-text",
+      iv: "text-iv",
+      fileR2Key: "file-m1",
+      fileMeta: "encrypted-meta",
+    });
+  });
+
+  it("puts the batch grouping inside the envelope, never on the wire in clear", async () => {
+    queue({ ...queuedFile("m1", 0), batch: { id: "b1", index: 2, count: 5 } });
+
+    await flushQueuedOutbox();
+
+    expect(state.encryptJson).toHaveBeenCalledWith(
+      expect.objectContaining({ batchId: "b1", batchIndex: 2, batchCount: 5 }),
+      "meta:m1",
+    );
+    // Nothing about the grouping reaches the request body itself.
+    expect(JSON.stringify(state.sendMessage.mock.calls[0]?.[0])).not.toContain("b1");
+  });
+
+  it("puts the view-once flag inside the envelope too", async () => {
+    queue({ ...queuedFile("m1", 0), viewOnce: true });
+
+    await flushQueuedOutbox();
+
+    expect(state.encryptJson).toHaveBeenCalledWith(
+      expect.objectContaining({ viewOnce: true }),
+      "meta:m1",
+    );
+    expect(JSON.stringify(state.sendMessage.mock.calls[0]?.[0])).not.toContain("viewOnce");
+  });
+
+  it("gives a plain text message an envelope only when it has something to carry", async () => {
+    queue({
+      id: "m1",
+      direction: "out",
+      senderDeviceId: "device",
+      text: "hello",
+      createdAt: 0,
+      status: "queued",
+    });
+
+    await flushQueuedOutbox();
+
+    expect(state.encryptJson).not.toHaveBeenCalled();
+    expect(state.sendMessage.mock.calls[0]?.[0]).not.toHaveProperty("fileMeta");
+  });
+
+  it("gives a view-once text message an envelope even though it has no file", async () => {
+    queue({
+      id: "m1",
+      direction: "out",
+      senderDeviceId: "device",
+      text: "hello",
+      viewOnce: true,
+      createdAt: 0,
+      status: "queued",
+    });
+
+    await flushQueuedOutbox();
+
+    expect(state.encryptJson).toHaveBeenCalledWith({ viewOnce: true }, "meta:m1");
+    expect(state.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      encryptedPayload: "encrypted-text",
+      fileMeta: "encrypted-meta",
+      fileMetaIv: "meta-iv",
+    });
+    expect(state.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("signs the envelope, so the server cannot strip the flag that retracts a message", async () => {
+    queue({
+      id: "m1",
+      direction: "out",
+      senderDeviceId: "device",
+      text: "hello",
+      viewOnce: true,
+      createdAt: 0,
+      status: "queued",
+    });
+
+    await flushQueuedOutbox();
+
+    const body = state.sendMessage.mock.calls[0]?.[0] as { signature?: string };
+    expect(body.signature).toBe(
+      `signed(${messageSignatureStatement({
+        groupId: "group",
+        messageId: "m1",
+        senderDeviceId: "device",
+        keyEpoch: 3,
+        encryptedPayload: "encrypted-text",
+        iv: "text-iv",
+        fileMeta: "encrypted-meta",
+        fileMetaIv: "meta-iv",
+      })})`,
+    );
   });
 });

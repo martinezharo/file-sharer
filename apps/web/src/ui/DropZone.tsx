@@ -1,15 +1,15 @@
 import { Upload } from "lucide-preact";
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { sendFileMessages } from "../actions";
 import { getDroppedFiles, hasTransferFiles } from "../share/transfer";
+import { stageFiles } from "../state/composer";
 import { showSpaceSection } from "../state/route";
 import { session } from "../state/session";
 import { showToast } from "../state/ui";
 
 /**
- * Whole-window drag & drop: files dropped anywhere in the app are queued as
- * messages, no need to aim at the composer.
+ * Whole-window drag & drop: files dropped anywhere in the app land in the
+ * composer's queue, no need to aim at it.
  *
  * The listeners live on `window` (capture phase) rather than on a wrapper
  * element so that dropping over any part of the UI — sidebar, modals, the
@@ -89,9 +89,9 @@ export function DropZone(): JSX.Element | null {
         <div class="grid size-14 place-items-center rounded-xl2 bg-accent-soft text-accent [&_svg]:size-[26px]">
           <Upload />
         </div>
-        <h3 class="text-title">Drop to send</h3>
+        <h3 class="text-title">Drop to attach</h3>
         <p class="max-w-[280px] text-body leading-relaxed text-muted">
-          Your files are encrypted here and sent to your other devices.
+          They go to the composer first, so you can add a comment before sending.
         </p>
       </div>
     </div>
@@ -110,7 +110,7 @@ async function acceptDrop(data: DataTransfer | null): Promise<void> {
     return;
   }
 
-  // Land on the chat so the queued messages are actually visible.
+  // Land on the chat, which is where the queue they just joined is shown.
   showSpaceSection("chat");
-  await sendFileMessages(files);
+  stageFiles(files);
 }

@@ -13,6 +13,7 @@
 
 import {
   type DeleteSignatureFields,
+  type MessageMeta,
   type MessageSignatureFields,
   deleteSignatureStatement,
   messageSignatureStatement,
@@ -187,16 +188,14 @@ async function doFlush(
     try {
       if (message.deletes) {
         await sendQueuedDeletion(message, context);
-      } else if (message.file) {
-        await sendQueuedFile(message, context);
-      } else if (message.text !== undefined) {
-        await sendQueuedText(message, context);
+      } else if (message.file || message.text !== undefined) {
+        await sendQueuedContent(message, context);
       } else {
         continue;
       }
       result.sent++;
     } catch (error) {
-      // Re-read instead of reusing `message`: sendQueuedFile pins `file.iv`
+      // Re-read instead of reusing `message`: sendQueuedContent pins `file.iv`
       // mid-flight and that pin must survive into the retry (see above).
       const current = (await getMessage(message.id, spaceId)) ?? message;
       if (isKeyRotated(error)) {
@@ -341,82 +340,102 @@ async function sendQueuedDeletion(message: LocalMessage, context: FlushContext):
   await update({ ...message, keyEpoch: epoch, status: "sent" }, context);
 }
 
-async function sendQueuedText(message: LocalMessage, context: FlushContext): Promise<void> {
-  const { auth, sign, signal } = context;
-  signal?.throwIfAborted();
-  const { epoch, key } = await pinEpoch(message, context);
-  const encrypted = await encryptText(key, message.text!, `text:${message.id}`);
-  signal?.throwIfAborted();
-  const signed = {
-    messageId: message.id,
-    keyEpoch: epoch,
-    encryptedPayload: encrypted.ciphertext,
-    iv: encrypted.iv,
+/**
+ * The message's encrypted metadata envelope, or nothing when there is nothing
+ * to say about it.
+ *
+ * It carries the attachment's name/size/mime as it always did, plus the album
+ * grouping and the view-once flag — inside the ciphertext, and covered by the
+ * signature, so the server can neither read which messages are sensitive nor
+ * strip the flag that makes one disappear (see `MessageMeta`).
+ */
+function metaFor(message: LocalMessage): MessageMeta | undefined {
+  const meta: MessageMeta = {
+    ...(message.file
+      ? { name: message.file.name, size: message.file.size, mime: message.file.mime }
+      : {}),
+    ...(message.batch
+      ? {
+          batchId: message.batch.id,
+          batchIndex: message.batch.index,
+          batchCount: message.batch.count,
+        }
+      : {}),
+    ...(message.viewOnce ? { viewOnce: true as const } : {}),
   };
-  try {
-    await api.sendMessage(
-      {
-        id: message.id,
-        keyEpoch: epoch,
-        encryptedPayload: encrypted.ciphertext,
-        iv: encrypted.iv,
-        ...(sign ? { signature: await sign.message(signed) } : {}),
-      },
-      auth,
-      signal,
-    );
-  } catch (error) {
-    if (!isAlreadySent(error)) throw error;
-  }
-  await update({ ...message, keyEpoch: epoch, status: "sent" }, context);
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
-async function sendQueuedFile(message: LocalMessage, context: FlushContext): Promise<void> {
+/**
+ * Deliver a message's content: text, a file, or both in one message.
+ *
+ * One function rather than the two it replaces, because "text" and "file" were
+ * never mutually exclusive on the wire — a `messages` row has both sets of
+ * columns and the Worker only requires one of them — and keeping them apart is
+ * what stopped an attachment from carrying a caption.
+ */
+async function sendQueuedContent(message: LocalMessage, context: FlushContext): Promise<void> {
   const { auth, sign, signal } = context;
-  let file = message.file!;
-  const blob = await getFile(file.r2Key, context.spaceId);
-  if (!blob) {
-    // The local original is gone; we can never re-upload it.
-    throw new Error("Local upload source is missing");
-  }
+  signal?.throwIfAborted();
 
   const { epoch, key } = await pinEpoch(message, context);
 
-  // Pin the file IV *before* uploading and reuse it on retries: with the same
-  // key + IV the re-encrypted ciphertext is byte-identical, so a retry that
-  // races a previously-registered send (see `isAlreadySent`) can never leave R2
-  // holding ciphertext that doesn't match the IV the server already stored.
-  if (!file.iv) file = { ...file, iv: bufToBase64Url(randomBytes(12)) };
-  await update({ ...message, file, keyEpoch: epoch, status: "uploading" }, context);
+  let file = message.file;
+  let fileIv: string | undefined;
+  if (file) {
+    const blob = await getFile(file.r2Key, context.spaceId);
+    if (!blob) {
+      // The local original is gone; we can never re-upload it.
+      throw new Error("Local upload source is missing");
+    }
 
+    // Pin the file IV *before* uploading and reuse it on retries: with the same
+    // key + IV the re-encrypted ciphertext is byte-identical, so a retry that
+    // races a previously-registered send (see `isAlreadySent`) can never leave
+    // R2 holding ciphertext that doesn't match the IV the server already stored.
+    if (!file.iv) file = { ...file, iv: bufToBase64Url(randomBytes(12)) };
+    await update({ ...message, file, keyEpoch: epoch, status: "uploading" }, context);
+
+    signal?.throwIfAborted();
+    const encrypted = await encryptFile(
+      key,
+      await blob.arrayBuffer(),
+      `file:${message.id}`,
+      file.iv,
+    );
+    signal?.throwIfAborted();
+    await api.uploadFile(file.r2Key, encrypted.ciphertext, auth, signal);
+    signal?.throwIfAborted();
+    fileIv = encrypted.iv;
+  }
+
+  const text =
+    message.text === undefined
+      ? undefined
+      : await encryptText(key, message.text, `text:${message.id}`);
   signal?.throwIfAborted();
-  const encrypted = await encryptFile(key, await blob.arrayBuffer(), `file:${message.id}`, file.iv);
+
+  const metaPlain = metaFor(message);
+  const meta = metaPlain ? await encryptJson(key, metaPlain, `meta:${message.id}`) : undefined;
   signal?.throwIfAborted();
-  await api.uploadFile(file.r2Key, encrypted.ciphertext, auth, signal);
-  signal?.throwIfAborted();
-  const meta = await encryptJson(
-    key,
-    { name: file.name, size: file.size, mime: file.mime },
-    `meta:${message.id}`,
-  );
-  const signed = {
-    messageId: message.id,
-    keyEpoch: epoch,
-    fileR2Key: file.r2Key,
-    fileIv: encrypted.iv,
-    fileMeta: meta.ciphertext,
-    fileMetaIv: meta.iv,
+
+  const payload = {
+    ...(text ? { encryptedPayload: text.ciphertext, iv: text.iv } : {}),
+    ...(file && fileIv ? { fileR2Key: file.r2Key, fileIv } : {}),
+    ...(meta ? { fileMeta: meta.ciphertext, fileMetaIv: meta.iv } : {}),
   };
+
   try {
     await api.sendMessage(
       {
         id: message.id,
         keyEpoch: epoch,
-        fileR2Key: file.r2Key,
-        fileIv: encrypted.iv,
-        fileMeta: meta.ciphertext,
-        fileMetaIv: meta.iv,
-        ...(sign ? { signature: await sign.message(signed) } : {}),
+        ...payload,
+        ...(sign
+          ? {
+              signature: await sign.message({ messageId: message.id, keyEpoch: epoch, ...payload }),
+            }
+          : {}),
       },
       auth,
       signal,
@@ -424,5 +443,5 @@ async function sendQueuedFile(message: LocalMessage, context: FlushContext): Pro
   } catch (error) {
     if (!isAlreadySent(error)) throw error;
   }
-  await update({ ...message, file, keyEpoch: epoch, status: "sent" }, context);
+  await update({ ...message, ...(file ? { file } : {}), keyEpoch: epoch, status: "sent" }, context);
 }

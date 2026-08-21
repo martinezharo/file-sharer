@@ -1,4 +1,5 @@
 import {
+  type MessageMeta,
   POLL_INTERVAL_MS,
   type PendingMessage,
   REALTIME_POLL_INTERVAL_MS,
@@ -38,10 +39,22 @@ import { ensureRealtime, realtimeConnected, startRealtime, stopRealtime } from "
 import { DeviceKeyMismatchError, adoptPendingKeys, rotateGroupKey } from "./rekey";
 import { syncSpaceName } from "./spaceName";
 
-interface FileMeta {
-  name: string;
-  size: number;
-  mime: string;
+/**
+ * The metadata envelope is decrypted for *any* message that carries one, not
+ * only for one with a file: it is where the album grouping and the view-once
+ * flag live, and a text-only message can have both.
+ */
+async function decryptMeta(
+  key: CryptoKey,
+  pendingMessage: PendingMessage,
+): Promise<MessageMeta | undefined> {
+  if (!pendingMessage.fileMeta || !pendingMessage.fileMetaIv) return undefined;
+  return decryptJson<MessageMeta>(
+    key,
+    pendingMessage.fileMeta,
+    pendingMessage.fileMetaIv,
+    `meta:${pendingMessage.id}`,
+  );
 }
 
 /**
@@ -431,26 +444,33 @@ async function registerIncoming(
     }
 
     let file: FileRef | undefined;
-    if (
-      pendingMessage.fileR2Key &&
-      pendingMessage.fileIv &&
-      pendingMessage.fileMeta &&
-      pendingMessage.fileMetaIv
-    ) {
+    let batch: LocalMessage["batch"];
+    let viewOnce: true | undefined;
+    if (pendingMessage.fileMeta && pendingMessage.fileMetaIv) {
       try {
-        const meta = await decryptJson<FileMeta>(
-          key,
-          pendingMessage.fileMeta,
-          pendingMessage.fileMetaIv,
-          `meta:${pendingMessage.id}`,
-        );
-        file = {
-          r2Key: pendingMessage.fileR2Key,
-          iv: pendingMessage.fileIv,
-          name: meta.name,
-          size: meta.size,
-          mime: meta.mime,
-        };
+        const meta = await decryptMeta(key, pendingMessage);
+        if (meta) {
+          if (pendingMessage.fileR2Key && pendingMessage.fileIv) {
+            file = {
+              r2Key: pendingMessage.fileR2Key,
+              iv: pendingMessage.fileIv,
+              // Written by an older build, or by a sender that lied: an
+              // attachment with no name is still worth showing, so it falls
+              // back rather than being dropped along with the message.
+              name: meta.name ?? "file",
+              size: meta.size ?? 0,
+              mime: meta.mime ?? "application/octet-stream",
+            };
+          }
+          if (meta.batchId !== undefined) {
+            batch = {
+              id: meta.batchId,
+              index: meta.batchIndex ?? 0,
+              count: meta.batchCount ?? 1,
+            };
+          }
+          if (meta.viewOnce) viewOnce = true;
+        }
         decryptAttempts.delete(`meta:${pendingMessage.id}`);
       } catch (error) {
         if (!decryptBudgetExhausted(`meta:${pendingMessage.id}`)) throw error;
@@ -506,6 +526,8 @@ async function registerIncoming(
       senderVerified,
       text,
       file,
+      batch,
+      viewOnce,
       createdAt: pendingMessage.createdAt,
       status: "sent",
       fileState: file ? "remote" : undefined,

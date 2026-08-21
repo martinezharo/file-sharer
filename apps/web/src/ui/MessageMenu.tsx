@@ -10,20 +10,28 @@ import {
   shareMessage,
 } from "../actions";
 import type { LocalMessage } from "../types";
-import { type MenuAnchor, Menu, MenuItem, MenuSeparator } from "./Menu";
+import { Menu, type MenuAnchor, MenuItem, MenuSeparator } from "./Menu";
 import { Button, Modal } from "./components";
 
 /**
  * Per-message context menu, opened from the message's own button, a long-press
  * or a right-click.
+ *
+ * `album` is the whole batch when the menu was opened on one. Deleting then
+ * takes the album with it, which is what the user is looking at and pointing
+ * at — offering to delete one hidden third of a group would be a surprise.
+ * Copy and share still act on the representative message alone: those produce
+ * one thing, not N.
  */
 export function MessageMenu({
   message,
+  album,
   anchor,
   alignRight,
   onClose,
 }: {
   message: LocalMessage;
+  album?: readonly LocalMessage[];
   anchor: MenuAnchor;
   alignRight: boolean;
   onClose: () => void;
@@ -35,9 +43,17 @@ export function MessageMenu({
   // it.
   const [confirmingGlobalDelete, setConfirmingGlobalDelete] = useState(false);
 
+  const targets = album ?? [message];
+
   function run(action: (message: LocalMessage) => Promise<void>): void {
     onClose();
     void action(message);
+  }
+
+  /** Apply a destructive action to every message the menu was opened on. */
+  function runAll(action: (message: LocalMessage) => Promise<void>): void {
+    onClose();
+    void Promise.all(targets.map((target) => action(target)));
   }
 
   if (confirmingGlobalDelete) {
@@ -45,11 +61,12 @@ export function MessageMenu({
       <Modal title="Delete on all devices?" onClose={onClose}>
         <div class="px-5 pb-5 pt-1 text-body leading-relaxed text-muted">
           <p>
-            This message will be removed from every device linked to this space, including the ones
-            that are offline right now — they&apos;ll delete it as soon as they reconnect.
+            {targets.length === 1 ? "This message" : `These ${targets.length} files`} will be
+            removed from every device linked to this space, including the ones that are offline
+            right now — they&apos;ll delete it as soon as they reconnect.
           </p>
           <p class="mt-3">
-            {message.file
+            {targets.some((target) => target.file)
               ? "A device that already saved this file elsewhere keeps that copy. This can't be undone."
               : "This can't be undone."}
           </p>
@@ -57,7 +74,11 @@ export function MessageMenu({
             <Button class="sm:w-auto" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button class="sm:w-auto" variant="danger" onClick={() => run(deleteMessageEverywhere)}>
+            <Button
+              class="sm:w-auto"
+              variant="danger"
+              onClick={() => runAll(deleteMessageEverywhere)}
+            >
               Delete everywhere
             </Button>
           </div>
@@ -79,13 +100,13 @@ export function MessageMenu({
         </MenuItem>
       )}
       {(message.text || canShareMessage(message)) && <MenuSeparator />}
-      <MenuItem danger icon={<Trash2 />} onClick={() => run(deleteMessageLocally)}>
+      <MenuItem danger icon={<Trash2 />} onClick={() => runAll(deleteMessageLocally)}>
         Delete on this device
       </MenuItem>
       {/* Hidden entirely when no other device can be holding a copy — an entry
           that would do nothing beyond the one above it is worse than no entry
           at all. See `canDeleteEverywhere`. */}
-      {canDeleteEverywhere(message) && (
+      {targets.some(canDeleteEverywhere) && (
         <MenuItem danger icon={<Users />} onClick={() => setConfirmingGlobalDelete(true)}>
           Delete on all devices
         </MenuItem>

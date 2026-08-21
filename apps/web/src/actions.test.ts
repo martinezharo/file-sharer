@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session } from "./types";
+import type { LocalMessage, Session } from "./types";
 
 /**
  * The two moments that take the app out of a space for good, and therefore have
@@ -28,6 +28,9 @@ let actions: typeof import("./actions");
 let route: typeof import("./state/route");
 let session: typeof import("./state/session");
 let spaces: typeof import("./state/spaces");
+let messagesState: typeof import("./state/messages");
+let deletions: typeof import("./db/deletions");
+let identity: typeof import("./crypto/identity");
 
 const A_SESSION: Session = {
   groupId: "group",
@@ -41,11 +44,14 @@ beforeEach(async () => {
   vi.resetModules();
   // Imported together after the reset so every module below shares one instance
   // of the registry and of the signals.
-  [actions, route, session, spaces] = await Promise.all([
+  [actions, route, session, spaces, messagesState, deletions, identity] = await Promise.all([
     import("./actions"),
     import("./state/route"),
     import("./state/session"),
     import("./state/spaces"),
+    import("./state/messages"),
+    import("./db/deletions"),
+    import("./crypto/identity"),
   ]);
 });
 
@@ -110,5 +116,70 @@ describe("handleAuthFailure", () => {
 
     expect(session.sessionRevoked.value).toBe(false);
     expect(await spaces.lastOpenedSpace()).toBe(created.id);
+  });
+});
+
+/**
+ * Opening a view-once message is split across two moments on purpose, and the
+ * split is the whole feature: the retraction goes out when it is *opened*, so
+ * no second device can still reach it, while the local copy survives until the
+ * reader closes it, so the person who opened it gets to finish reading.
+ */
+describe("view-once messages", () => {
+  const A_MESSAGE: LocalMessage = {
+    id: "msg-1",
+    direction: "in",
+    senderDeviceId: "other-device",
+    text: "secret",
+    viewOnce: true,
+    createdAt: 1,
+    status: "sent",
+  };
+
+  beforeEach(async () => {
+    // The message store is per space, so one has to be open to write into it.
+    await spaces.beginSpace("Home");
+    session.session.value = A_SESSION;
+    identity.knownDeviceIds.value = ["device", "other-device"];
+    await messagesState.upsertMessage(A_MESSAGE);
+  });
+
+  it("retracts from the other devices on open, and keeps the copy being read", async () => {
+    await actions.consumeViewOnce(A_MESSAGE);
+
+    // The tombstone is queued for delivery...
+    const tombstone = messagesState.messages.value.find((m) => m.deletes === A_MESSAGE.id);
+    expect(tombstone).toMatchObject({ direction: "out", status: "queued" });
+    // ...and the id is remembered, so a copy still in flight is dropped on
+    // arrival instead of quietly coming back.
+    expect(await deletions.loadDeletions()).toHaveProperty(A_MESSAGE.id);
+    // But what is being read is still here.
+    expect(messagesState.getLocalMessage(A_MESSAGE.id)).toBeDefined();
+  });
+
+  it("erases the local copy when the reader closes it", async () => {
+    await actions.consumeViewOnce(A_MESSAGE);
+    await actions.releaseViewOnce(A_MESSAGE);
+
+    expect(messagesState.getLocalMessage(A_MESSAGE.id)).toBeUndefined();
+  });
+
+  it("records the deletion but sends no tombstone when there is nobody to tell", async () => {
+    identity.knownDeviceIds.value = ["device"];
+
+    await actions.consumeViewOnce(A_MESSAGE);
+
+    expect(messagesState.messages.value.some((m) => m.deletes)).toBe(false);
+    expect(await deletions.loadDeletions()).toHaveProperty(A_MESSAGE.id);
+  });
+
+  it("ignores a message that is not view-once, whatever calls it", async () => {
+    const ordinary: LocalMessage = { ...A_MESSAGE, id: "msg-2", viewOnce: undefined };
+    await messagesState.upsertMessage(ordinary);
+
+    await actions.consumeViewOnce(ordinary);
+
+    expect(messagesState.messages.value.some((m) => m.deletes)).toBe(false);
+    expect(messagesState.getLocalMessage("msg-2")).toBeDefined();
   });
 });

@@ -34,6 +34,7 @@ import {
   seedInheritedIdentities,
 } from "./crypto/identity";
 import { createKeyring, currentKey, keyForEpoch } from "./crypto/keyring";
+import { recordDeletion } from "./db/deletions";
 import {
   GLOBAL_PENDING_PAIRING,
   type SpaceRecord,
@@ -49,6 +50,16 @@ import {
   metaSet,
   putOutgoingFileMessages,
 } from "./db/store";
+import { takeSharedContent } from "./share/incoming";
+import {
+  clearComposer,
+  composerDraft,
+  resetComposer,
+  stageFiles,
+  stagedFiles,
+  viewOnceArmed,
+} from "./state/composer";
+import { locked } from "./state/lock";
 import {
   applyGlobalDeletion,
   applyMessageUpdate,
@@ -56,7 +67,6 @@ import {
   loadMessages,
   upsertMessage,
 } from "./state/messages";
-import { locked } from "./state/lock";
 import { APP_PATH, navigate, route, showSpaceSection, spacePath } from "./state/route";
 import {
   applyKeyring,
@@ -78,8 +88,7 @@ import {
   openSpace,
   refreshSpaces,
 } from "./state/spaces";
-import { takeSharedContent } from "./share/incoming";
-import { composerDraft, showToast } from "./state/ui";
+import { showToast } from "./state/ui";
 import { backgroundSyncSupported, requestBackgroundSync } from "./sync/background";
 import { DeviceKeyMismatchError, rotateGroupKey } from "./sync/rekey";
 import { startSync, stopSync, syncNow } from "./sync/sync";
@@ -565,40 +574,89 @@ function scheduleOutboxFlush(): void {
   void requestBackgroundSync();
 }
 
-export async function sendTextMessage(text: string): Promise<void> {
-  const currentSession = session.value;
-  if (!currentSession) return;
-  const trimmed = text.trim();
-  if (!trimmed) return;
+/** Everything one press of the send button turns into messages. */
+export interface ComposerContent {
+  text?: string;
+  files?: readonly File[];
+  viewOnce?: boolean;
+}
 
-  const message: LocalMessage = {
-    id: randomId(),
-    direction: "out",
+/**
+ * Send whatever the composer is holding.
+ *
+ * One entry point for text, files and both together, replacing the separate
+ * `sendTextMessage`/`sendFileMessages` that could not produce a message
+ * carrying both — even though the wire format has always allowed it (a
+ * `messages` row has the text and file columns side by side, and the Worker
+ * only requires one of them to be present).
+ *
+ * A selection of several files still becomes several messages. They share a
+ * batch id so the other devices render them as one album under one caption,
+ * but each keeps its own delivery row and its own resumable upload: fusing
+ * them into a single message or a single archive would turn "three of five
+ * arrived" into "none of one" the moment a background pass is cut short.
+ */
+export async function sendComposerMessage(content: ComposerContent): Promise<void> {
+  const currentSession = session.value;
+  if (!currentSession || !keyring.value) return;
+
+  const text = content.text?.trim() ?? "";
+  const files = content.files ?? [];
+  if (!text && files.length === 0) return;
+
+  const viewOnce = content.viewOnce ? (true as const) : undefined;
+  const sender = {
+    direction: "out" as const,
     senderDeviceId: currentSession.deviceId,
     senderDeviceName: currentSession.deviceName,
-    text: trimmed,
-    createdAt: Date.now(),
-    status: "queued",
+    status: "queued" as const,
   };
-  await upsertMessage(message);
-  // Flush via the sync engine (handles encrypt + send + retry).
-  scheduleOutboxFlush();
-}
+  // One base timestamp with an offset per item, so an album keeps the order it
+  // was picked in rather than the order the clock happened to tick.
+  const createdAt = Date.now();
 
-/** Queue one file for sending. Returns false if it was rejected (too large). */
-export async function sendFileMessage(file: File): Promise<boolean> {
-  const queued = await queueFileMessages([file]);
-  if (queued === 0) return false;
-  scheduleOutboxFlush();
-  return true;
-}
+  if (files.length === 0) {
+    await upsertMessage({
+      id: randomId(),
+      ...sender,
+      text,
+      viewOnce,
+      createdAt,
+    });
+    scheduleOutboxFlush();
+    return;
+  }
 
-export async function sendFileMessages(files: readonly File[]): Promise<void> {
-  // Commit the complete selection before starting any upload. Previously each
-  // file kicked the sync loop immediately, so the first upload could be frozen
-  // while the rest of the selection had not even joined the outbox yet.
-  const queued = await queueFileMessages(files);
-  if (queued === 0) return;
+  // Only a real batch gets a batch id: a lone file is not an album, and
+  // tagging it as one would make the receiver draw a group of one.
+  const batchId = files.length > 1 ? randomId() : undefined;
+  const entries = files.map((file, index) => {
+    const message: LocalMessage = {
+      id: randomId(),
+      ...sender,
+      // The caption belongs to the selection, so it rides on the first message
+      // and the album renders it once, underneath the group.
+      ...(index === 0 && text ? { text } : {}),
+      file: {
+        r2Key: randomId(),
+        iv: "",
+        name: file.name,
+        size: file.size,
+        mime: file.type || "application/octet-stream",
+      },
+      ...(batchId ? { batch: { id: batchId, index, count: files.length } } : {}),
+      viewOnce,
+      createdAt: createdAt + index,
+      fileState: "downloaded",
+    };
+    return { message, blob: file };
+  });
+
+  // Commit the complete selection before starting any upload: kicking the sync
+  // loop per file used to freeze the first upload while the rest of the
+  // selection had not even joined the outbox yet.
+  await putOutgoingFileMessages(entries);
+  for (const { message } of entries) applyMessageUpdate(message);
   scheduleOutboxFlush();
 
   // Tell the user what will happen to their upload(s) beyond this screen.
@@ -611,46 +669,18 @@ export async function sendFileMessages(files: readonly File[]): Promise<void> {
   }
 }
 
-async function queueFileMessages(files: readonly File[]): Promise<number> {
-  const currentSession = session.value;
-  if (!currentSession || !keyring.value) return 0;
+/** Send what the composer currently holds, then empty it. */
+export async function sendStagedComposer(): Promise<void> {
+  const text = composerDraft.value;
+  const files = stagedFiles.value.map((staged) => staged.file);
+  const viewOnce = viewOnceArmed.value;
+  if (!text.trim() && files.length === 0) return;
 
-  const accepted = files.filter((file) => file.size <= MAX_FILE_SIZE);
-  if (accepted.length !== files.length) {
-    const rejected = files.length - accepted.length;
-    showToast(
-      `${rejected === 1 ? "1 file is" : `${rejected} files are`} too large (max ${Math.floor(MAX_FILE_SIZE / 1024 / 1024)} MB)`,
-      "error",
-    );
-  }
-  if (accepted.length === 0) return 0;
-
-  const createdAt = Date.now();
-  const entries = accepted.map((file, index) => {
-    const r2Key = randomId();
-    const fileRef: FileRef = {
-      r2Key,
-      iv: "",
-      name: file.name,
-      size: file.size,
-      mime: file.type || "application/octet-stream",
-    };
-    const message: LocalMessage = {
-      id: randomId(),
-      direction: "out",
-      senderDeviceId: currentSession.deviceId,
-      senderDeviceName: currentSession.deviceName,
-      file: fileRef,
-      createdAt: createdAt + index,
-      status: "queued",
-      fileState: "downloaded",
-    };
-    return { message, blob: file };
-  });
-
-  await putOutgoingFileMessages(entries);
-  for (const { message } of entries) applyMessageUpdate(message);
-  return entries.length;
+  // Cleared first: the send is queued to IndexedDB and retried from there, so
+  // leaving the content in the composer until it lands would only invite it to
+  // be sent twice.
+  clearComposer();
+  await sendComposerMessage({ text, files, viewOnce });
 }
 
 /** Re-queue a failed outgoing message and try again. */
@@ -782,26 +812,58 @@ export function canDeleteEverywhere(message: LocalMessage): boolean {
  * dropped when it arrives instead of quietly reappearing in the history the user
  * just cleared.
  */
-export async function deleteMessageEverywhere(message: LocalMessage): Promise<void> {
+async function queueGlobalDeletion(messageId: string): Promise<void> {
   const currentSession = session.value;
-  if (!currentSession || !canDeleteEverywhere(message)) return;
-
-  await applyGlobalDeletion(message.id);
+  if (!currentSession) return;
   await upsertMessage({
     id: randomId(),
     direction: "out",
     senderDeviceId: currentSession.deviceId,
-    deletes: message.id,
+    deletes: messageId,
     createdAt: Date.now(),
     status: "queued",
   });
   scheduleOutboxFlush();
+}
+
+export async function deleteMessageEverywhere(message: LocalMessage): Promise<void> {
+  if (!session.value || !canDeleteEverywhere(message)) return;
+
+  await applyGlobalDeletion(message.id);
+  await queueGlobalDeletion(message.id);
 
   showToast(
     navigator.onLine
       ? "Deleting on all your devices"
       : "Deleted here — your other devices will follow when you're back online",
   );
+}
+
+/**
+ * Open a view-once message: retract it from every *other* device now, and keep
+ * the local copy only until the reader closes it.
+ *
+ * The split is what makes "disappears once opened" true rather than
+ * approximately true. Retracting on open (instead of on close) means a second
+ * device can no longer reach it from the moment the first one does; keeping
+ * the local row until `releaseViewOnce` means the person who opened it gets to
+ * finish reading. `recordDeletion` runs first either way, so a copy of the
+ * message still in flight is dropped on arrival instead of reappearing.
+ *
+ * A device with no peers has nobody to tell, so it only records and discards.
+ */
+export async function consumeViewOnce(message: LocalMessage): Promise<void> {
+  const currentSession = session.value;
+  if (!currentSession || !message.viewOnce) return;
+
+  await recordDeletion(message.id);
+  const peers = knownDeviceIds.value.filter((id) => id !== currentSession.deviceId);
+  if (peers.length > 0) await queueGlobalDeletion(message.id);
+}
+
+/** The reader closed a view-once message: erase what is left of it here. */
+export async function releaseViewOnce(message: LocalMessage): Promise<void> {
+  await discardMessage(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -852,10 +914,16 @@ export async function consumeSharedContent(): Promise<void> {
 
   const { text, files } = await takeSharedContent();
   showSpaceSection("chat");
-  if (text) composerDraft.value = text;
+  // Staged rather than sent: a share that carries both text and files used to
+  // arrive as a draft plus N separate messages, with no way to make the text
+  // the caption of what came with it. Now it lands as one composer the user
+  // can review, extend and send in one go.
+  if (text) composerDraft.value = composerDraft.value ? `${composerDraft.value}\n${text}` : text;
   if (files.length > 0) {
-    await sendFileMessages(files);
-    showToast(files.length === 1 ? "Shared file added" : `${files.length} shared files added`);
+    const staged = stageFiles(files);
+    if (staged > 0) {
+      showToast(staged === 1 ? "Shared file added" : `${staged} shared files added`);
+    }
   }
 }
 
@@ -879,6 +947,10 @@ export async function applyRoute(): Promise<void> {
     if (activeSpace.value) {
       stopSync();
       closeSpace();
+      // A draft, a queue of attachments and the view-once mode all belong to
+      // the space that was open; carrying them into the next one would attach
+      // the wrong files to the wrong conversation.
+      resetComposer();
     }
     if (current.name === "spaces") {
       // Standing on the list is where the app is now: the next launch opens
