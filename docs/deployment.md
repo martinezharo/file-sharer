@@ -2,7 +2,13 @@
 
 file-sharer deploys as one Cloudflare Worker. The Worker serves the built PWA and `/api/*`; D1 stores metadata, R2 stores encrypted file blobs, a cron trigger performs cleanup, and a Durable Object provides per-space WebSocket notifications.
 
-Run deployment commands from the repository root. The root `pnpm run deploy` script is the release path because it performs the migration check and schema update before publishing the new Worker. Use `pnpm run deploy`, not `pnpm deploy`: pnpm reserves the latter for its own workspace deployment command.
+## How a release happens
+
+Pushing to `main` deploys. The repository is connected to Cloudflare Workers Builds, which on every push runs `pnpm run build` and then `pnpm --filter @file-sharer/worker run deploy`, and publishes the resulting version. There is no deploy step in GitHub Actions: `.github/workflows/ci.yml` only lints, typechecks, tests and builds.
+
+The migration guard and the schema update therefore live inside the Worker package's own `deploy` script rather than in a root release script. That is deliberate: it is the command Workers Builds runs, so the automated path and a manual one cannot diverge, and there is no longer a `wrangler deploy` shortcut that quietly skips migrations.
+
+Deploying by hand — for a first deployment, or when the Git connection is unavailable — is the same sequence from the repository root. Use `pnpm run deploy`, not `pnpm deploy`: pnpm reserves the latter for its own workspace deployment command.
 
 ## Cloudflare resources
 
@@ -41,22 +47,23 @@ Apply the remote schema when provisioning a new database:
 pnpm db:migrate:remote
 ```
 
-The normal deployment command also applies pending remote migrations, so this is mainly a provisioning or schema-only operation.
+Every deployment also applies pending remote migrations, so this is mainly a provisioning or schema-only operation.
 
 ## Release sequence
 
-```bash
-pnpm run deploy
-```
+Whether it is triggered by a push or run by hand, the order is the same:
 
-From the root, this runs the following sequence:
-
-1. `pnpm check:migrations` inspects migrations that are still pending on remote D1.
-2. `pnpm db:migrate:remote` applies the accepted migrations.
-3. `pnpm --filter @file-sharer/web build` renders the SSR bundle, then builds the PWA and its service worker, prerendering the public page (`index.html`) and the app shell (`app.html`) into `dist`.
-4. `pnpm --filter @file-sharer/worker run deploy` publishes the Worker and its static assets.
+1. `pnpm --filter @file-sharer/web build` renders the SSR bundle, then builds the PWA and its service worker, prerendering the public page (`index.html`) and the app shell (`app.html`) into `dist`. Workers Builds runs this as its build command.
+2. `pnpm --filter @file-sharer/worker run deploy` — its build command — then:
+   1. `scripts/check-migrations.mts` inspects migrations that are still pending on remote D1;
+   2. `pnpm db:migrate:remote` applies the accepted migrations;
+   3. `wrangler deploy` publishes the Worker and its static assets.
 
 Migrations run before the new Worker is published. This is safe for additive schema changes because the old Worker can continue to use the wider schema during the short transition.
+
+The guard reads the remote migration ledger through Wrangler. If it cannot reach it — no credentials, or a database that does not exist yet — it says so and steps aside rather than blocking, and the migration step immediately after fails on its own if the credentials really are missing. A build that lacks D1 permissions therefore fails loudly before publishing instead of deploying against an unmigrated schema.
+
+Node is pinned by `.node-version` because the guard is TypeScript executed directly by Node, which needs a version that strips types without a flag.
 
 ## Migration compatibility
 
@@ -74,7 +81,9 @@ If a breaking migration is deliberately coordinated with downtime, the guard can
 ALLOW_BREAKING_MIGRATIONS=1 pnpm run deploy
 ```
 
-This override is a release decision, not a routine fix. A direct `wrangler deploy` or a Worker package deploy bypasses the root migration sequence and must not be used when schema changes are pending.
+This override is a release decision, not a routine fix. In an automated deployment it has to be set as a build variable in the Workers Builds configuration, which is deliberately inconvenient: a breaking migration should be a deliberate, supervised release, so prefer running that one by hand.
+
+A direct `wrangler deploy` from `apps/worker` still bypasses the guard, since the sequence lives in the package's `deploy` script rather than in the binary. Use `pnpm run deploy` from the root, or push.
 
 ## Post-deploy verification
 

@@ -12,7 +12,7 @@
     "dev:worker": "pnpm --filter @file-sharer/worker dev",
     "dev:web": "pnpm --filter @file-sharer/web dev",
     "build": "pnpm --filter @file-sharer/web build",
-    "deploy": "pnpm check:migrations && pnpm db:migrate:remote && pnpm --filter @file-sharer/web build && pnpm --filter @file-sharer/worker run deploy",
+    "deploy": "pnpm --filter @file-sharer/web build && pnpm --filter @file-sharer/worker run deploy",
     "check:migrations": "node scripts/check-migrations.mts",
     "db:migrate:local": "pnpm --filter @file-sharer/worker db:migrate:local",
     "db:migrate:remote": "pnpm --filter @file-sharer/worker db:migrate:remote",
