@@ -10,3 +10,4 @@ coverage/
 .e2e-state/
 test-results/
 playwright-report/
+.dev-certs/

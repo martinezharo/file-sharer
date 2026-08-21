@@ -22,7 +22,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` applies local D1 migrations and starts the Worker and Vite development server. Open the URL printed by Vite. Web Crypto requires a secure context: `http://localhost` is allowed, but a development URL opened over plain HTTP on a LAN or Tailscale address is not. See [Development](docs/development.md) for HTTPS previews and test setup.
+`pnpm dev` applies local D1 migrations and starts the Worker and Vite development server. Open the URL printed by Vite. Web Crypto requires a secure context, so on a tailnet the development server issues its own trusted certificate and prints an `https://…ts.net` URL that any of your devices can open; otherwise use `http://localhost`, which browsers also treat as secure. See [Development](docs/development.md) for HTTPS details and test setup.
 
 ## Common checks
 

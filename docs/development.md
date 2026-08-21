@@ -32,9 +32,19 @@ pnpm --filter @file-sharer/web dev
 
 ## Secure contexts
 
-The PWA intentionally uses the browser Web Crypto API without a plaintext-HTTP fallback. `http://localhost` is treated as a secure development context, but an HTTP URL opened through a LAN or Tailscale address is not.
+The PWA intentionally uses the browser Web Crypto API without a plaintext-HTTP fallback, and service workers and the camera-based pairing scan are gated the same way. `http://localhost` is treated as a secure development context; an HTTP URL opened through a LAN or Tailscale address is not, so the app loads there and then fails.
 
-For another device, expose the development server through HTTPS, for example with a dedicated Tailscale Serve port, or configure Vite with a trusted development certificate. If the app reports that Web Crypto is unavailable, check the origin before changing application code.
+The development server therefore serves HTTPS by itself whenever the machine is on a tailnet with HTTPS certificates enabled. `apps/web/scripts/dev-https.mjs` asks `tailscale cert` for a certificate for this machine's `*.ts.net` name, caches it in the gitignored `apps/web/.dev-certs/`, and renews it a week before expiry. Vite then binds to that name — not `0.0.0.0`, which on a VPS would publish the development server — and prints a single `https://<machine>.<tailnet>.ts.net:5173/` URL that other devices on the tailnet open with no certificate warning. The name is what the certificate covers; the numeric tailnet address serves the same app but fails validation. Both the API and the realtime WebSocket are proxied through that same origin.
+
+Without Tailscale nothing changes: the server falls back to plain HTTP, where `http://localhost:5173` is still a secure context.
+
+| Variable | Effect |
+| --- | --- |
+| `FILE_SHARER_DEV_HTTPS=0` | Forces plain HTTP. |
+| `FILE_SHARER_DEV_HOST` / `--host` | Binds elsewhere; HTTPS stays on only if the value is this machine's tailnet name or address. |
+| `FILE_SHARER_WORKER_URL` | Overrides the Worker the `/api` proxy forwards to. |
+
+If the app reports that Web Crypto is unavailable, check the origin before changing application code.
 
 ## Commands
 
