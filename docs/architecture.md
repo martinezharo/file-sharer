@@ -50,11 +50,19 @@ The browser reaches the Durable Object through `GET /api/realtime`; it does not 
 
 ### Sending and receiving
 
-1. The sender encrypts text, file contents, and file metadata locally with the current `GroupKey`.
+1. The sender encrypts text, file contents, and the metadata envelope locally with the current `GroupKey`.
 2. An encrypted file is uploaded to R2 first. The message metadata and per-device pending delivery rows are then written to D1.
 3. The Worker sends a best-effort notification to the space's Durable Object. The object broadcasts only `{ "type": "sync" }` to other connected devices.
 4. Each recipient performs the normal authenticated pending-message sync, downloads and decrypts any file, stores the result locally, and acknowledges the message.
 5. When every active recipient has acknowledged, the Worker deletes the message row and its R2 object. An hourly cron job is the safety net for content older than 24 hours.
+
+### Albums and captions
+
+A message can carry text and a file at once, which is what a caption is. A selection of several files still becomes one message per file: they share a batch id inside the encrypted metadata envelope, and the receiving chat renders the run as a single bubble under a single caption. The grouping is presentational on purpose — on the wire each file keeps its own delivery row and its own upload, which is the only granularity a background pass cut short can resume from.
+
+### Temporary (view-once) messages
+
+A message can be marked `viewOnce` inside the same encrypted envelope. The first device to open one queues a global-delete tombstone before showing the content, so the other devices lose it from the moment it is opened, and drops its own copy when the reader closes it. This is cooperative, exactly like deleting for everyone: it is a UI affordance, not a guarantee against a screenshot or a modified client.
 
 ### Deleting for everyone
 

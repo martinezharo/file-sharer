@@ -64,7 +64,9 @@ The `since` parameter is accepted as a timestamp cursor, but the current client 
 
 ## Message contract
 
-The server accepts encrypted text fields, encrypted file metadata, an R2 object key, the key epoch, and an optional signature. A normal message must contain text, a file reference, or both. A tombstone sets `deletesMessageId` and carries no content fields.
+The server accepts encrypted text fields, an encrypted metadata envelope, an R2 object key, the key epoch, and an optional signature. A normal message must contain text, a file reference, or both. A tombstone sets `deletesMessageId` and carries no content fields.
+
+The `fileMeta`/`fileMetaIv` pair is the message's whole metadata envelope (`MessageMeta` in the shared contract), not only an attachment's name and size: it also carries the album grouping and the view-once flag, so a message with no file at all can have one. The server never opens it. It requires only that the two travel together, and that a message with a file has one.
 
 The Worker rejects a message encrypted under a superseded epoch. If a device has published a signing key, it must provide a signature; recipients perform the final cryptographic signature verification and may mark a tampered message invalid.
 
