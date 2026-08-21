@@ -42,8 +42,14 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   if (!encryptedPayload && iv) {
     throw new ApiError("bad_request", "iv requires encryptedPayload");
   }
-  if (!fileR2Key && (fileIv || fileMeta || fileMetaIv)) {
-    throw new ApiError("bad_request", "File metadata requires fileR2Key");
+  if (!fileR2Key && fileIv) {
+    throw new ApiError("bad_request", "fileIv requires fileR2Key");
+  }
+  // `fileMeta` is the message's metadata envelope, not the file's alone: a
+  // text-only message carries one when it is view-once or part of an album
+  // (see `MessageMeta`). So it no longer requires a file — only its own IV.
+  if (!fileMeta !== !fileMetaIv) {
+    throw new ApiError("bad_request", "fileMeta and fileMetaIv must travel together");
   }
   if (fileR2Key && (!fileIv || !fileMeta || !fileMetaIv)) {
     throw new ApiError("bad_request", "A file requires iv and encrypted metadata");
@@ -60,8 +66,8 @@ export async function sendMessage(c: RouteContext): Promise<Response> {
   // so it carries no payload. Refusing the mixed form keeps the two kinds
   // unambiguous: a receiver never has to decide whether to render *and* delete,
   // and the signature covering it is unambiguously the delete statement.
-  if (deletesMessageId && (encryptedPayload || fileR2Key)) {
-    throw new ApiError("bad_request", "A deletion cannot carry text or a file");
+  if (deletesMessageId && (encryptedPayload || fileR2Key || fileMeta)) {
+    throw new ApiError("bad_request", "A deletion cannot carry text, a file or metadata");
   }
   if (deletesMessageId === id) {
     throw new ApiError("bad_request", "A deletion cannot target itself");

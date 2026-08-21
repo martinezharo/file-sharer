@@ -263,6 +263,53 @@ export function messageSignatureStatement(fields: MessageSignatureFields): strin
 }
 
 // ---------------------------------------------------------------------------
+// Encrypted message metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * What `fileMeta`/`fileMetaIv` decrypt to: everything about a message that is
+ * neither its text nor its file bytes.
+ *
+ * It rides in the `fileMeta` fields rather than in columns of its own for two
+ * reasons, and both matter more than the slightly stale name.
+ *
+ * It is already *encrypted*, so the server never learns which messages are
+ * view-once (the ones worth attacking) or which files were sent together. And
+ * it is already covered by `messageSignatureStatement`, so a server cannot
+ * strip the view-once flag to make a message persist, nor forge a grouping.
+ * A new column would have neither property until the signature statement was
+ * versioned — which would make every older build report good messages as
+ * `invalid` (see the note on `deleteSignatureStatement`).
+ *
+ * Every field is optional and the shape stays flat, so metadata written before
+ * any of this existed (`{ name, size, mime }`) still decodes unchanged.
+ */
+export interface MessageMeta {
+  /** Attachment name. Absent when the message carries no file. */
+  name?: string;
+  size?: number;
+  mime?: string;
+  /**
+   * Files picked together share a batch id, so the receiving chat can render
+   * them as one album under one caption. Deliberately *not* a protocol-level
+   * album: on the wire these stay independent messages, each with its own
+   * delivery row and its own resumable upload, which is the only granularity
+   * that survives a background pass being cut short.
+   */
+  batchId?: string;
+  /** Position within the batch, so the album renders in the order picked. */
+  batchIndex?: number;
+  /** How many messages the batch has, so a partial album can say so. */
+  batchCount?: number;
+  /**
+   * Removed from every device once the first one opens it. The opener emits an
+   * ordinary "delete for everyone" tombstone, so the retraction inherits the
+   * offline delivery, retries and races that pipeline already handles.
+   */
+  viewOnce?: true;
+}
+
+// ---------------------------------------------------------------------------
 // API request/response DTOs
 // ---------------------------------------------------------------------------
 
@@ -448,9 +495,14 @@ export interface SendMessageRequest {
   fileR2Key?: string;
   /** base64url IV for the file payload. */
   fileIv?: string;
-  /** Encrypted file metadata (name/size/mime), base64url AES-GCM ciphertext. */
+  /**
+   * The message's encrypted metadata envelope (`MessageMeta`), base64url
+   * AES-GCM ciphertext. Historically file-only, which is where the name comes
+   * from; it now also carries the album grouping and the view-once flag, so a
+   * message with no attachment at all can have one.
+   */
   fileMeta?: string;
-  /** base64url IV for the file metadata payload. */
+  /** base64url IV for the metadata payload. */
   fileMetaIv?: string;
   /**
    * Id of a message this one orders every device to delete ("delete for

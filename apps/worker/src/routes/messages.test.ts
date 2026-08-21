@@ -191,7 +191,8 @@ describe("POST /api/messages", () => {
     ["text without an iv", { iv: undefined }],
     ["a file without an iv", { fileR2Key: "blob", fileIv: undefined }],
     ["an iv without text", { encryptedPayload: undefined, iv: "iv" }],
-    ["file metadata without a file", { fileMeta: "metadata" }],
+    ["metadata without its own iv", { fileMeta: "metadata" }],
+    ["a metadata iv without the metadata it belongs to", { fileMetaIv: "meta-iv" }],
     [
       "a file without encrypted metadata",
       { fileR2Key: "blob", fileIv: "file-iv", fileMeta: undefined, fileMetaIv: undefined },
@@ -504,5 +505,54 @@ describe("POST /api/messages (delete for everyone)", () => {
     expect(await env.DB.prepare("SELECT id FROM messages WHERE id = ?").bind(target).first()).toBe(
       null,
     );
+  });
+});
+
+/**
+ * `fileMeta` carries the message's whole metadata envelope (`MessageMeta`) and
+ * not just an attachment's name and size, so a message with no file at all can
+ * have one. That is how the view-once flag and the album grouping reach the
+ * other devices: inside the ciphertext, where the server can neither read them
+ * nor strip them without breaking the signature.
+ */
+describe("POST /api/messages (metadata envelope)", () => {
+  it("accepts and stores an envelope on a message that has no file", async () => {
+    const { groupId, owner } = await seedSpace();
+    const recipient = await seedDevice(groupId);
+    const id = uid("msg");
+
+    const response = await send(owner, { id, fileMeta: "meta-ct", fileMetaIv: "meta-iv" });
+
+    expect(response.status).toBe(200);
+    const stored = await env.DB.prepare(
+      "SELECT file_meta AS meta, file_r2_key AS r2 FROM messages WHERE id = ?",
+    )
+      .bind(id)
+      .first<{ meta: string | null; r2: string | null }>();
+    expect(stored).toMatchObject({ meta: "meta-ct", r2: null });
+
+    // And it reaches the recipient, which is the whole point of putting it here.
+    const { messages } = await pending(recipient);
+    expect(messages.find((m) => m.id === id)).toMatchObject({
+      fileMeta: "meta-ct",
+      fileMetaIv: "meta-iv",
+      fileR2Key: null,
+    });
+  });
+
+  it("refuses a tombstone that smuggles an envelope alongside the deletion", async () => {
+    const { groupId, owner } = await seedSpace();
+    await seedDevice(groupId);
+
+    const response = await send(owner, {
+      encryptedPayload: undefined,
+      iv: undefined,
+      deletesMessageId: uid("target"),
+      fileMeta: "meta-ct",
+      fileMetaIv: "meta-iv",
+    });
+
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe("bad_request");
   });
 });
