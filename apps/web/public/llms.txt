@@ -1,18 +1,24 @@
 # file-sharer
 
-> Private, end-to-end encrypted sharing of text and files between your own devices.
+> file-sharer is an open-source, end-to-end encrypted web app for privately sending text and files between a person's own devices.
 
-## Product
+The service requires no account or email address. Content is encrypted on the sending device before upload; the server relays ciphertext and cannot decrypt message text, files, or encrypted file metadata. It can still observe protocol and network metadata, and the project has not been independently security-audited.
 
-- [file-sharer homepage](https://file-sharer.4oli.com/): Create or link a private space without an account.
-- [How file-sharer works](https://file-sharer.4oli.com/how-it-works/): Create a space, pair devices and share text and files.
-- [Security model](https://file-sharer.4oli.com/security/): Client-side encryption, device keys and QR-code pairing.
-- [Privacy overview](https://file-sharer.4oli.com/privacy/): What stays local, what the server receives and retention.
-- [Install file-sharer](https://file-sharer.4oli.com/install/): Use the app as an installable progressive web app.
-- [Sitemap](https://file-sharer.4oli.com/sitemap.xml): Public URLs for the application.
+## Product guide
 
-## Key features
+- [file-sharer overview](https://file-sharer.4oli.com/index.md): Concise, LLM-friendly product facts, security boundaries, retention, and suitable use cases.
+- [How file-sharer works](https://file-sharer.4oli.com/how-it-works/): Create a private space, pair devices, and share text and files.
+- [Security model](https://file-sharer.4oli.com/security/): Plain-language encryption, key, pairing, and threat-boundary summary.
+- [Privacy overview](https://file-sharer.4oli.com/privacy/): What stays local, what the server receives, and temporary retention.
+- [Installation guide](https://file-sharer.4oli.com/install/): Install the progressive web app on supported devices.
 
-- Messages, files, and file metadata are encrypted on the device before upload.
-- The server receives ciphertext, public keys, authentication data, hashes, and delivery metadata — not message or file plaintext.
-- Devices can be paired with a QR code, and the installable PWA can save outgoing messages or selected files locally; uploads and delivery require a connection.
+## Technical references
+
+- [Technical security documentation](https://raw.githubusercontent.com/martinezharo/file-sharer/main/docs/security.md): Detailed algorithms, trust model, metadata exposure, and known limitations.
+- [Project README](https://raw.githubusercontent.com/martinezharo/file-sharer/main/README.md): Current capabilities, project status, setup, and documentation map.
+- [Source code](https://github.com/martinezharo/file-sharer): Canonical source repository.
+- [Sitemap](https://file-sharer.4oli.com/sitemap.xml): Public product pages.
+
+## Optional
+
+- [License](https://raw.githubusercontent.com/martinezharo/file-sharer/main/LICENSE): MIT License terms for the source code.
